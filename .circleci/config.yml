@@ -1,0 +1,34 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: saltyrtc/circleci-image-rs:latest
+    steps:
+      - checkout
+      # Load cargo target from cache if possible.
+      # Multiple caches are used to increase the chance of a cache hit.
+      - restore_cache:
+          keys:
+            - v1-cargo-cache-{{ arch }}-{{ .Branch }}
+            - v1-cargo-cache-{{ arch }}
+
+      # Show versions
+      - run: rustc --version && cargo --version
+
+      # Regular build
+      - run: cargo build
+      # Run tests
+      - run: cargo test
+      # Run audit
+      - run: cargo audit
+
+      - save_cache:
+          key: v1-cargo-cache-{{ arch }}-{{ .Branch }}
+          paths:
+            - target
+            - /usr/local/cargo
+      - save_cache:
+          key: v1-cargo-cache-{{ arch }}
+          paths:
+            - target
+            - /usr/local/cargo

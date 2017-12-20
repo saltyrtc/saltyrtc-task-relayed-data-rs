@@ -1,0 +1,11 @@
+[package]
+name = "saltyrtc-task-relayed-data"
+version = "0.1.0"
+authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
+
+[dependencies]
+clippy = { version = "*", optional = true }
+log = "0.3"
+saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs/", branch = "develop" }
+
+[dev-dependencies]
