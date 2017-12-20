@@ -25,6 +25,18 @@ If `nightly` is not your default compiler:
 
     $ rustup run nightly cargo build --features clippy
 
+## Msgpack Debugging
+
+If you enable the `msgpack-debugging` compile flag, you'll get direct msgpack
+analysis URLs for all decoded messages in your `TRACE` level logs.
+
+    cargo build --features 'msgpack-debugging'
+
+You can customize that URL prefix at compile time using the `MSGPACK_DEBUG_URL`
+env var. This is the default URL:
+
+    MSGPACK_DEBUG_URL='https://msgpack.dbrgn.ch/#base64='
+
 
 <!-- Badges -->
 [circle-ci]: https://circleci.com/gh/saltyrtc/saltyrtc-task-relayed-data-rs/tree/develop

@@ -8,4 +8,5 @@ clippy = { version = "*", optional = true }
 log = "0.3"
 saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs/", branch = "develop" }
 
-[dev-dependencies]
+[features]
+msgpack-debugging = ["saltyrtc-client/msgpack-debugging"]

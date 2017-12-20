@@ -19,6 +19,8 @@ jobs:
       - run: cargo build
       # Run tests
       - run: cargo test
+      # Build with msgpack debugging
+      - run: cargo build --features 'msgpack-debugging'
       # Run audit
       - run: cargo audit
 
