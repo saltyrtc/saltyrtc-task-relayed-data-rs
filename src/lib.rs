@@ -6,13 +6,14 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::mem;
 
-use saltyrtc_client::{CloseCode, Task};
+use saltyrtc_client::{CloseCode, BoxedFuture};
 use saltyrtc_client::errors::Error;
 use saltyrtc_client::futures::future;
 use saltyrtc_client::futures::{Stream, Sink, Future};
 use saltyrtc_client::futures::sync::mpsc::{Sender, Receiver};
 use saltyrtc_client::futures::sync::oneshot::Sender as OneshotSender;
 use saltyrtc_client::rmpv::Value;
+use saltyrtc_client::tasks::{Task, TaskMessage};
 use tokio_core::reactor::Remote;
 
 
@@ -20,6 +21,14 @@ static TASK_NAME: &'static str = "v0.relayed-data.tasks.saltyrtc.org";
 const TYPE_DATA: &'static str = "data";
 const KEY_TYPE: &'static str = "type";
 const KEY_PAYLOAD: &'static str = "p";
+
+
+/// Wrap future in a box with type erasure.
+macro_rules! boxed {
+    ($future:expr) => {{
+        Box::new($future) as BoxedFuture<_, _>
+    }}
+}
 
 
 /// An implementation of the
@@ -48,7 +57,7 @@ pub enum State {
 
 #[derive(Debug)]
 pub struct ConnectionContext {
-    outgoing_tx: Sender<Value>,
+    outgoing_tx: Sender<TaskMessage>,
     disconnect_tx: OneshotSender<Option<CloseCode>>,
 }
 
@@ -74,8 +83,8 @@ impl Task for RelayedDataTask {
     ///
     /// This is the point where the task can take over.
     fn start(&mut self,
-             outgoing_tx: Sender<Value>,
-             incoming_rx: Receiver<Value>,
+             outgoing_tx: Sender<TaskMessage>,
+             incoming_rx: Receiver<TaskMessage>,
              disconnect_tx: OneshotSender<Option<CloseCode>>) {
         info!("Relayed data task is taking over");
 
@@ -100,31 +109,32 @@ impl Task for RelayedDataTask {
         let incoming_tx = self.incoming_tx.clone();
         self.remote.spawn(move |handle| {
             let handle = handle.clone();
-            incoming_rx.for_each(move |val: Value| {
-                // Validate value type
-                let map = match val {
-                    Value::Map(map) => map,
-                    _ => panic!("Invalid msgpack message type (not a map)"),
+            incoming_rx.for_each(move |msg: TaskMessage| {
+                let map: HashMap<String, Value> = match msg {
+                    TaskMessage::Value(map) => map,
+                    TaskMessage::Close(reason) => {
+                        // Peer requests closing of connection.
+                        // Notify user about this.
+                        return boxed!(
+                            incoming_tx
+                                .clone()
+                                .send(Message::Disconnect(reason))
+                                .map(|_| ())
+                                .map_err(|_| ())
+                        );
+                    },
                 };
 
-                // Validate message type
                 let msg_type = map
-                    .iter()
-                    .filter(|&&(ref k, _)| k.as_str() == Some(KEY_TYPE))
-                    .filter_map(|&(_, ref v)| v.as_str())
-                    .next()
+                    .get(KEY_TYPE)
+                    .and_then(|v| v.as_str())
                     .expect("Message type missing");
                 if msg_type != TYPE_DATA {
-                    panic!("Unknown message type: {}");
+                    panic!("Unknown message type: {}", msg_type);
                 }
 
                 // Extract payload
-                let payload_opt = map
-                    .iter()
-                    .filter(|&&(ref k, _)| k.as_str() == Some(KEY_PAYLOAD))
-                    .map(|&(_, ref v)| v)
-                    .next();
-                match payload_opt {
+                match map.get(KEY_PAYLOAD) {
                     Some(payload) => {
                         // Send payload through channel
                         let incoming_tx = incoming_tx.clone();
@@ -139,7 +149,7 @@ impl Task for RelayedDataTask {
                     None => warn!("Received {} message without payload field", TYPE_DATA),
                 }
 
-                future::ok(())
+                boxed!(future::ok(()))
             })
         });
     }
@@ -148,7 +158,7 @@ impl Task for RelayedDataTask {
     ///
     /// Incoming messages with accepted types will be passed to the task.
     /// Otherwise, the message is dropped.
-    fn supported_types(&self) -> &[&'static str] {
+    fn supported_types(&self) -> &'static [&'static str] {
         &[TYPE_DATA]
     }
 
@@ -170,30 +180,6 @@ impl Task for RelayedDataTask {
     /// Return the task data used for negotiation in the `auth` message.
     fn data(&self) -> Option<HashMap<String, Value>> {
         None
-    }
-
-    /// This method is called by the signaling class when sending and receiving 'close' messages.
-    fn on_close(&mut self, reason: CloseCode) {
-        let incoming_tx = self.incoming_tx.clone();
-
-        // Extract and destructure connection context
-        let state = mem::replace(&mut self.state, State::Stopped);
-        let cctx: ConnectionContext = match state {
-            State::Stopped => panic!("State was already stopped!"),
-            State::Started(cctx) => cctx,
-        };
-        let ConnectionContext { outgoing_tx: _, disconnect_tx } = cctx;
-
-        // Notify outside about disconnecting.
-        self.remote.spawn(move |_handle| {
-            incoming_tx.send(Message::Disconnect(reason))
-                .then(|_| {
-                    // Shut down task loop
-                    // TODO: Shouldn't we send along the reason?
-                    let _ = disconnect_tx.send(None);
-                    future::ok(())
-                })
-        });
     }
 
     /// This method can be called by the user to close the connection.
