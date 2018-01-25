@@ -1,3 +1,4 @@
+#[macro_use] extern crate failure;
 #[macro_use] extern crate log;
 extern crate saltyrtc_client;
 extern crate tokio_core;
@@ -7,14 +8,19 @@ use std::collections::HashMap;
 use std::mem;
 
 use saltyrtc_client::{CloseCode, BoxedFuture};
+use saltyrtc_client::dep::futures::future;
+use saltyrtc_client::dep::futures::{Stream, Sink, Future};
+use saltyrtc_client::dep::futures::sync::mpsc::{Sender, Receiver};
+use saltyrtc_client::dep::futures::sync::mpsc::{unbounded, UnboundedSender};
+use saltyrtc_client::dep::futures::sync::oneshot::Sender as OneshotSender;
+use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::errors::Error;
-use saltyrtc_client::futures::future;
-use saltyrtc_client::futures::{Stream, Sink, Future};
-use saltyrtc_client::futures::sync::mpsc::{Sender, Receiver};
-use saltyrtc_client::futures::sync::oneshot::Sender as OneshotSender;
-use saltyrtc_client::rmpv::Value;
 use saltyrtc_client::tasks::{Task, TaskMessage};
 use tokio_core::reactor::Remote;
+
+mod errors;
+
+pub use errors::{RelayedDataError, RelayedDataResult};
 
 
 static TASK_NAME: &'static str = "v0.relayed-data.tasks.saltyrtc.org";
@@ -58,6 +64,7 @@ pub enum State {
 #[derive(Debug)]
 pub struct ConnectionContext {
     outgoing_tx: Sender<TaskMessage>,
+    user_outgoing_tx: UnboundedSender<Value>,
     disconnect_tx: OneshotSender<Option<CloseCode>>,
 }
 
@@ -65,6 +72,24 @@ pub struct ConnectionContext {
 pub enum Message {
     Data(Value),
     Disconnect(CloseCode),
+}
+
+impl RelayedDataTask {
+    pub fn new(remote: Remote, incoming_tx: Sender<Message>) -> Self {
+        RelayedDataTask {
+            remote,
+            state: State::Stopped,
+            incoming_tx,
+        }
+    }
+
+    /// Return the sending end of a channel, to be able to send outgoing values.
+    pub fn get_sender(&self) -> Result<UnboundedSender<Value>, String> {
+        match self.state {
+            State::Stopped => return Err("Cannot return Sender in `Stopped` state".into()),
+            State::Started(ref cctx) => Ok(cctx.user_outgoing_tx.clone()),
+        }
+    }
 }
 
 impl Task for RelayedDataTask {
@@ -89,27 +114,27 @@ impl Task for RelayedDataTask {
         info!("Relayed data task is taking over");
 
         // Check for current state
-        match self.state {
-            State::Stopped => {
-                error!("The `start` method was called in `Started` state! Ignoring.");
-                return;
-            },
-            _ => {},
+        if let State::Started(_) = self.state {
+            panic!("The `start` method was called in `Started` state! Ignoring.");
         };
 
         // Update state
+        let (user_outgoing_tx, user_outgoing_rx) = unbounded::<Value>();
         let cctx = ConnectionContext {
-            outgoing_tx,
+            outgoing_tx: outgoing_tx.clone(),
             disconnect_tx,
+            user_outgoing_tx,
         };
         self.state = State::Started(cctx);
 
-        // Handle incoming messages
+
         // TODO: Better error handling
         let incoming_tx = self.incoming_tx.clone();
         self.remote.spawn(move |handle| {
             let handle = handle.clone();
-            incoming_rx.for_each(move |msg: TaskMessage| {
+
+            // Handle incoming messages
+            let incoming = incoming_rx.for_each(move |msg: TaskMessage| {
                 let map: HashMap<String, Value> = match msg {
                     TaskMessage::Value(map) => map,
                     TaskMessage::Close(reason) => {
@@ -150,7 +175,33 @@ impl Task for RelayedDataTask {
                 }
 
                 boxed!(future::ok(()))
-            })
+            });
+
+            let outgoing = user_outgoing_rx.for_each(move |val: Value| {
+                // Prepare message map
+                let mut map: HashMap<String, Value> = HashMap::new();
+                map.insert(KEY_TYPE.into(), Value::String(TYPE_DATA.into()));
+                map.insert(KEY_PAYLOAD.into(), val);
+
+                // Send message through channel
+                let future = outgoing_tx
+                    .clone()
+                    .send(TaskMessage::Value(map))
+                    .map(|_sink| ())
+                    .map_err(|_| ());
+
+                debug!("Enqueuing outgoing message");
+                boxed!(future)
+            });
+
+            incoming
+                .select(outgoing)
+                .map(|_| ())
+                .map_err(|_| ())
+                .then(|_| {
+                    debug!("† Relayed task send/receive loops done");
+                    Ok(())
+                })
         });
     }
 
@@ -190,7 +241,7 @@ impl Task for RelayedDataTask {
             State::Stopped => return,
             State::Started(cctx) => cctx,
         };
-        let ConnectionContext { outgoing_tx: _, disconnect_tx } = cctx;
+        let ConnectionContext { disconnect_tx, .. } = cctx;
 
         // Shut down task loop
         let _ = disconnect_tx.send(Some(reason));
