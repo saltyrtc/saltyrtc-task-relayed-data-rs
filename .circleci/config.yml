@@ -5,6 +5,7 @@ jobs:
       - image: saltyrtc/circleci-image-rs:latest
     steps:
       - checkout
+
       # Load cargo target from cache if possible.
       # Multiple caches are used to increase the chance of a cache hit.
       - restore_cache:
@@ -12,18 +13,44 @@ jobs:
             - v1-cargo-cache-{{ arch }}-{{ .Branch }}
             - v1-cargo-cache-{{ arch }}
 
-      # Show versions
-      - run: rustc --version && cargo --version
+      # Diagnostics
+      - run:
+          name: Show versions
+          command: rustc --version && cargo --version
 
-      # Regular build
-      - run: cargo build
-      # Run tests
-      - run: cargo test
-      # Build with msgpack debugging
-      - run: cargo build --features 'msgpack-debugging'
-      # Run audit
-      - run: cargo audit
+      # Certificates
+      - run:
+          name: Generate certificates
+          command: /saltyrtc/certs/generate-cert.sh
+      - run:
+          name: Copy certificate
+          command: cp /saltyrtc/certs/saltyrtc.der .
 
+      # Start processes
+      - run:
+          name: Start SaltyRTC server
+          command: nohup saltyrtc-server-launcher > server.pid
+
+      # Build and test
+      - run:
+          name: Build
+          command: cargo build
+      - run:
+          name: Test
+          command: cargo test
+      - run:
+          name: Test (with flags)
+          command: cargo build --features 'msgpack-debugging'
+      - run:
+          name: Audit
+          command: cargo audit
+
+      # Show server log
+      - run:
+          name: Print server log
+          command: cat /saltyrtc/serverlog.txt
+
+      # Save cache
       - save_cache:
           key: v1-cargo-cache-{{ arch }}-{{ .Branch }}
           paths:
