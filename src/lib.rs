@@ -10,8 +10,7 @@ use std::mem;
 use saltyrtc_client::{CloseCode, BoxedFuture};
 use saltyrtc_client::dep::futures::future;
 use saltyrtc_client::dep::futures::{Stream, Sink, Future};
-use saltyrtc_client::dep::futures::sync::mpsc::{Sender, Receiver};
-use saltyrtc_client::dep::futures::sync::mpsc::{unbounded, UnboundedSender};
+use saltyrtc_client::dep::futures::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
 use saltyrtc_client::dep::futures::sync::oneshot::Sender as OneshotSender;
 use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::errors::Error;
@@ -52,7 +51,7 @@ pub struct RelayedDataTask {
     state: State,
 
     /// The sending end of a channel to send incoming messages to the task user.
-    incoming_tx: Sender<Message>,
+    incoming_tx: UnboundedSender<Message>,
 }
 
 #[derive(Debug)]
@@ -63,7 +62,7 @@ pub enum State {
 
 #[derive(Debug)]
 pub struct ConnectionContext {
-    outgoing_tx: Sender<TaskMessage>,
+    outgoing_tx: UnboundedSender<TaskMessage>,
     user_outgoing_tx: UnboundedSender<Value>,
     disconnect_tx: OneshotSender<Option<CloseCode>>,
 }
@@ -75,7 +74,7 @@ pub enum Message {
 }
 
 impl RelayedDataTask {
-    pub fn new(remote: Remote, incoming_tx: Sender<Message>) -> Self {
+    pub fn new(remote: Remote, incoming_tx: UnboundedSender<Message>) -> Self {
         RelayedDataTask {
             remote,
             state: State::Stopped,
@@ -108,8 +107,8 @@ impl Task for RelayedDataTask {
     ///
     /// This is the point where the task can take over.
     fn start(&mut self,
-             outgoing_tx: Sender<TaskMessage>,
-             incoming_rx: Receiver<TaskMessage>,
+             outgoing_tx: UnboundedSender<TaskMessage>,
+             incoming_rx: UnboundedReceiver<TaskMessage>,
              disconnect_tx: OneshotSender<Option<CloseCode>>) {
         info!("Relayed data task is taking over");
 
@@ -119,7 +118,7 @@ impl Task for RelayedDataTask {
         };
 
         // Update state
-        let (user_outgoing_tx, user_outgoing_rx) = unbounded::<Value>();
+        let (user_outgoing_tx, user_outgoing_rx) = mpsc::unbounded::<Value>();
         let cctx = ConnectionContext {
             outgoing_tx: outgoing_tx.clone(),
             disconnect_tx,

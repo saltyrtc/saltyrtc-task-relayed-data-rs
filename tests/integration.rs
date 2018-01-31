@@ -35,9 +35,6 @@ use tokio_core::reactor::{Core, Remote};
 use tokio_timer::Timer;
 
 
-const CHANNEL_BUFFER_SIZE: usize = 24;
-
-
 /// Wrap future in a box with type erasure.
 macro_rules! boxed {
     ($future:expr) => {{
@@ -49,8 +46,8 @@ macro_rules! boxed {
 fn setup_initiator(
     keypair: KeyPair,
     remote: Remote,
-) -> (SaltyClient, mpsc::Receiver<Message>) {
-    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+) -> (SaltyClient, mpsc::UnboundedReceiver<Message>) {
+    let (tx, rx) = mpsc::unbounded();
     let task = RelayedDataTask::new(remote, tx);
     let salty = SaltyClientBuilder::new(keypair)
         .add_task(Box::new(task))
@@ -64,8 +61,8 @@ fn setup_responder(
     remote: Remote,
     pubkey: PublicKey,
     auth_token: Option<AuthToken>,
-) -> (SaltyClient, mpsc::Receiver<Message>) {
-    let (tx, rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+) -> (SaltyClient, mpsc::UnboundedReceiver<Message>) {
+    let (tx, rx) = mpsc::unbounded();
     let task = RelayedDataTask::new(remote, tx);
     let salty = SaltyClientBuilder::new(keypair)
         .add_task(Box::new(task))
