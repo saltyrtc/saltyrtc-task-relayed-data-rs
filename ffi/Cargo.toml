@@ -8,6 +8,7 @@ name = "saltyrtc_task_relayed_data_ffi"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+libc = "0.2"
 log = "0.4"
 saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs.git", branch = "develop" }
 saltyrtc-task-relayed-data = { path = ".." }

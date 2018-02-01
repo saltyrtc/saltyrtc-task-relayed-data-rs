@@ -16,9 +16,26 @@
  * If no error happened, the value should be `OK` (0).
  */
 enum salty_relayed_data_success_t {
+  /*
+   * No error.
+   */
   OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
   NULL_ARGUMENT = 1,
+  /*
+   * Creation of the object failed.
+   */
   CREATE_FAILED = 2,
+  /*
+   * The public key bytes are not valid.
+   */
+  PUBKEY_INVALID = 3,
+  /*
+   * The auth token bytes are not valid.
+   */
+  AUTH_TOKEN_INVALID = 4,
 };
 typedef uint8_t salty_relayed_data_success_t;
 
@@ -114,7 +131,7 @@ salty_keypair_t *salty_keypair_new(void);
 void salty_relayed_data_client_free(salty_client_t *ptr);
 
 /*
- * Initialize a new SaltyRTC client with the Relayed Data task.
+ * Initialize a new SaltyRTC client as initiator with the Relayed Data task.
  *
  * Arguments:
  *     keypair (`*salty_keypair_t`):
@@ -125,13 +142,35 @@ void salty_relayed_data_client_free(salty_client_t *ptr);
  *         Request that the server sends a WebSocket ping message at the specified interval.
  *         Set this argument to `0` to disable ping messages.
  * Returns:
- *     Either a pointer to a `salty_relayed_data_client_ret_t` struct,
- *     or `null` if one of the argument pointers was null or
- *     if creation of the client instance failed.
- *     In the case of a failure, the error will be logged.
+ *     A `salty_relayed_data_client_ret_t` struct.
  */
 salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(salty_keypair_t *keypair,
                                                                  salty_remote_t *remote,
                                                                  uint32_t ping_interval_seconds);
+
+/*
+ * Initialize a new SaltyRTC client as responder with the Relayed Data task.
+ *
+ * Arguments:
+ *     keypair (`*salty_keypair_t`):
+ *         Pointer to a key pair.
+ *     remote (`*salty_remote_t`):
+ *         Pointer to an event loop remote handle.
+ *     ping_interval_seconds (`uint32_t`):
+ *         Request that the server sends a WebSocket ping message at the specified interval.
+ *         Set this argument to `0` to disable ping messages.
+ *     initiator_pubkey (`uint8_t[32]`):
+ *         Public key of the initiator. This must be a pointer to a 32 byte array.
+ *     auth_token (`uint8_t[32]` or `null`):
+ *         One-time auth token from the initiator. If set, this must be a pointer
+ *         to a 32 byte array. Set this to `null` when restoring a trusted session.
+ * Returns:
+ *     A `salty_relayed_data_client_ret_t` struct.
+ */
+salty_relayed_data_client_ret_t salty_relayed_data_responder_new(salty_keypair_t *keypair,
+                                                                 salty_remote_t *remote,
+                                                                 uint32_t ping_interval_seconds,
+                                                                 const uint8_t *initiator_pubkey,
+                                                                 const uint8_t *auth_token);
 
 #endif /* saltyrtc_task_relayed_data_bindings_h */
