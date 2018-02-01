@@ -22,6 +22,7 @@ extern crate tokio_core;
 pub mod saltyrtc_client_ffi;
 
 use std::ptr;
+use std::time::Duration;
 
 use saltyrtc_client::{SaltyClient, SaltyClientBuilder};
 use saltyrtc_client::crypto::KeyPair;
@@ -38,6 +39,9 @@ use tokio_core::reactor::Remote;
 #[no_mangle]
 pub enum salty_channel_receiver_t {}
 
+/// Result type with all potential error codes.
+///
+/// If no error happened, the value should be `OK` (0).
 #[repr(u8)]
 #[no_mangle]
 pub enum salty_relayed_data_success_t {
@@ -59,6 +63,14 @@ pub struct salty_relayed_data_client_ret_t {
 
 /// Initialize a new SaltyRTC client with the Relayed Data task.
 ///
+/// Arguments:
+///     keypair (`*salty_keypair_t`):
+///         Pointer to a key pair.
+///     remote (`*salty_remote_t`):
+///         Pointer to an event loop remote handle.
+///     ping_interval_seconds (`uint32_t`):
+///         Request that the server sends a WebSocket ping message at the specified interval.
+///         Set this argument to `0` to disable ping messages.
 /// Returns:
 ///     Either a pointer to a `salty_relayed_data_client_ret_t` struct,
 ///     or `null` if one of the argument pointers was null or
@@ -68,6 +80,7 @@ pub struct salty_relayed_data_client_ret_t {
 pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     keypair: *mut salty_keypair_t,
     remote: *mut salty_remote_t,
+    ping_interval_seconds: u32,
 ) -> salty_relayed_data_client_ret_t {
     // Helper function to return error values
     fn error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client_ret_t {
@@ -98,9 +111,16 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     // Instantiate task
     let task = RelayedDataTask::new(*remote, tx);
 
+    // Determine ping interval
+    let interval = match ping_interval_seconds {
+        0 => None,
+        secs => Some(Duration::from_secs(secs as u64))
+    };
+
     // Create client instance
     let client_res = SaltyClientBuilder::new(*keypair)
         .add_task(Box::new(task) as BoxedTask)
+        .with_ping_interval(interval)
         .initiator();
     let client = match client_res {
         Ok(client) => client,

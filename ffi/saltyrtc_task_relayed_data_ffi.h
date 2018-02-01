@@ -10,6 +10,11 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+/*
+ * Result type with all potential error codes.
+ *
+ * If no error happened, the value should be `OK` (0).
+ */
 enum salty_relayed_data_success_t {
   OK = 0,
   NULL_ARGUMENT = 1,
@@ -104,6 +109,14 @@ void salty_relayed_data_client_free(salty_client_t *ptr);
 /*
  * Initialize a new SaltyRTC client with the Relayed Data task.
  *
+ * Arguments:
+ *     keypair (`*salty_keypair_t`):
+ *         Pointer to a key pair.
+ *     remote (`*salty_remote_t`):
+ *         Pointer to an event loop remote handle.
+ *     ping_interval_seconds (`uint32_t`):
+ *         Request that the server sends a WebSocket ping message at the specified interval.
+ *         Set this argument to `0` to disable ping messages.
  * Returns:
  *     Either a pointer to a `salty_relayed_data_client_ret_t` struct,
  *     or `null` if one of the argument pointers was null or
@@ -111,6 +124,7 @@ void salty_relayed_data_client_free(salty_client_t *ptr);
  *     In the case of a failure, the error will be logged.
  */
 salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(salty_keypair_t *keypair,
-                                                                 salty_remote_t *remote);
+                                                                 salty_remote_t *remote,
+                                                                 uint32_t ping_interval_seconds);
 
 #endif /* saltyrtc_task_relayed_data_bindings_h */

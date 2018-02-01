@@ -1,7 +1,10 @@
 /**
  * C integration test.
  */
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
 #include "../saltyrtc_task_relayed_data_ffi.h"
 
@@ -18,9 +21,11 @@ int main() {
     salty_remote_t *remote = salty_event_loop_get_remote(loop);
 
     printf("  Creating client instance\n");
+    uint32_t interval_seconds = 0;
     salty_relayed_data_client_ret_t client_ret = salty_relayed_data_initiator_new(
         keypair,
-        remote
+        remote,
+        interval_seconds
     );
 
     printf("  Freeing client instance\n");
