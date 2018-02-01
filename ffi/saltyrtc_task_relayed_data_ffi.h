@@ -47,6 +47,13 @@ typedef struct salty_keypair_t salty_keypair_t;
  */
 typedef struct salty_remote_t salty_remote_t;
 
+/*
+ * The return value when creating a new client instance.
+ *
+ * Note: Before accessing `client` or `rx_chan`, make sure to check
+ * the `success` field for errors. If the creation of the client
+ * was not successful, then the `client` and `rx_chan` pointers will be null.
+ */
 typedef struct {
   salty_relayed_data_success_t success;
   salty_client_t *client;

@@ -50,6 +50,11 @@ pub enum salty_relayed_data_success_t {
     CREATE_FAILED = 2,
 }
 
+/// The return value when creating a new client instance.
+///
+/// Note: Before accessing `client` or `rx_chan`, make sure to check
+/// the `success` field for errors. If the creation of the client
+/// was not successful, then the `client` and `rx_chan` pointers will be null.
 #[repr(C)]
 #[no_mangle]
 pub struct salty_relayed_data_client_ret_t {
@@ -58,6 +63,57 @@ pub struct salty_relayed_data_client_ret_t {
     pub rx_chan: *mut salty_channel_receiver_t,
 }
 
+
+// *** HELPER FUNCTIONS *** //
+
+/// Helper function to return error values.
+fn make_error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client_ret_t {
+    salty_relayed_data_client_ret_t {
+        success: reason,
+        client: ptr::null_mut(),
+        rx_chan: ptr::null_mut(),
+    }
+}
+
+/// Helper function to parse arguments and to create a new `SaltyClientBuilder`.
+unsafe fn create_client_builder(
+    keypair: *mut salty_keypair_t,
+    remote: *mut salty_remote_t,
+    ping_interval_seconds: u32,
+) -> Result<(SaltyClientBuilder, mpsc::UnboundedReceiver<Message>), salty_relayed_data_success_t> {
+    // Null checks
+    if keypair.is_null() {
+        error!("Keypair pointer is null");
+        return Err(salty_relayed_data_success_t::NULL_ARGUMENT);
+    }
+    if remote.is_null() {
+        error!("Remote pointer is null");
+        return Err(salty_relayed_data_success_t::NULL_ARGUMENT);
+    }
+
+    // Recreate pointer instances
+    let keypair = Box::from_raw(keypair as *mut KeyPair);
+    let remote = Box::from_raw(remote as *mut Remote);
+
+    // Create communication channels
+    let (tx, rx) = mpsc::unbounded();
+
+    // Instantiate task
+    let task = RelayedDataTask::new(*remote, tx);
+
+    // Determine ping interval
+    let interval = match ping_interval_seconds {
+        0 => None,
+        secs => Some(Duration::from_secs(secs as u64))
+    };
+
+    // Create builder instance
+    let builder = SaltyClientBuilder::new(*keypair)
+        .add_task(Box::new(task) as BoxedTask)
+        .with_ping_interval(interval);
+
+    Ok((builder, rx))
+}
 
 // *** MAIN FUNCTIONALITY *** //
 
@@ -82,51 +138,17 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     remote: *mut salty_remote_t,
     ping_interval_seconds: u32,
 ) -> salty_relayed_data_client_ret_t {
-    // Helper function to return error values
-    fn error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client_ret_t {
-        salty_relayed_data_client_ret_t {
-            success: reason,
-            client: ptr::null_mut(),
-            rx_chan: ptr::null_mut(),
-        }
-    }
-
-    // Null check
-    if keypair.is_null() {
-        error!("Keypair pointer is null");
-        return error(salty_relayed_data_success_t::NULL_ARGUMENT);
-    }
-    if remote.is_null() {
-        error!("Remote pointer is null");
-        return error(salty_relayed_data_success_t::NULL_ARGUMENT);
-    }
-
-    // Recreate pointer instances
-    let keypair = Box::from_raw(keypair as *mut KeyPair);
-    let remote = Box::from_raw(remote as *mut Remote);
-
-    // Create communication channels
-    let (tx, rx) = mpsc::unbounded();
-
-    // Instantiate task
-    let task = RelayedDataTask::new(*remote, tx);
-
-    // Determine ping interval
-    let interval = match ping_interval_seconds {
-        0 => None,
-        secs => Some(Duration::from_secs(secs as u64))
+    let (builder, rx) = match create_client_builder(keypair, remote, ping_interval_seconds) {
+        Ok(tuple) => tuple,
+        Err(reason) => return make_error(reason),
     };
 
-    // Create client instance
-    let client_res = SaltyClientBuilder::new(*keypair)
-        .add_task(Box::new(task) as BoxedTask)
-        .with_ping_interval(interval)
-        .initiator();
+    let client_res = builder.initiator();
     let client = match client_res {
         Ok(client) => client,
         Err(e) => {
             error!("Could not instantiate SaltyClient: {}", e);
-            return error(salty_relayed_data_success_t::CREATE_FAILED);
+            return make_error(salty_relayed_data_success_t::CREATE_FAILED);
         },
     };
 
