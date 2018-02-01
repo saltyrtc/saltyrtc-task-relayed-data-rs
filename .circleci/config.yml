@@ -31,19 +31,30 @@ jobs:
           name: Start SaltyRTC server
           command: nohup saltyrtc-server-launcher > server.pid
 
-      # Build and test
+      # Build and test main crate
       - run:
-          name: Build
+          name: Build (Rust)
           command: cargo build
       - run:
-          name: Test
+          name: Test (Rust)
           command: cargo test
       - run:
-          name: Test (with flags)
+          name: Build with flags (Rust)
           command: cargo build --features 'msgpack-debugging'
       - run:
-          name: Audit
+          name: Audit (Rust)
           command: cargo audit
+
+      # Build and test FFI crate
+      - run:
+          name: Build (Rust FFI)
+          command: cd ffi && cargo build
+      - run:
+          name: Test (Rust FFI)
+          command: cd ffi && cargo test
+      - run:
+          name: Audit (Rust FFI)
+          command: cd ffi && cargo audit
 
       # Show server log
       - run:
@@ -55,9 +66,11 @@ jobs:
           key: v1-cargo-cache-{{ arch }}-{{ .Branch }}
           paths:
             - target
+            - ffi/target
             - /usr/local/cargo
       - save_cache:
           key: v1-cargo-cache-{{ arch }}
           paths:
             - target
+            - ffi/target
             - /usr/local/cargo
