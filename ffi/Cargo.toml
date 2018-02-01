@@ -1,0 +1,20 @@
+[package]
+name = "saltyrtc-task-relayed-data-ffi"
+version = "0.1.0"
+authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
+
+[lib]
+name = "saltyrtc_task_relayed_data_ffi"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+log = "0.4"
+saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs.git", branch = "develop" }
+saltyrtc-task-relayed-data = { path = ".." }
+tokio-core = "0.1"
+
+[build-dependencies]
+cbindgen = "0.4"
+
+[dev-dependencies]
+lazy_static = "1.0"
