@@ -134,11 +134,11 @@ unsafe fn create_client_builder(
 /// Initialize a new SaltyRTC client as initiator with the Relayed Data task.
 ///
 /// Arguments:
-///     keypair (`*salty_keypair_t`):
+///     keypair (`*salty_keypair_t`, moved):
 ///         Pointer to a key pair.
-///     remote (`*salty_remote_t`):
+///     remote (`*salty_remote_t`, moved):
 ///         Pointer to an event loop remote handle.
-///     ping_interval_seconds (`uint32_t`):
+///     ping_interval_seconds (`uint32_t`, copied):
 ///         Request that the server sends a WebSocket ping message at the specified interval.
 ///         Set this argument to `0` to disable ping messages.
 /// Returns:
@@ -175,18 +175,19 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 /// Initialize a new SaltyRTC client as responder with the Relayed Data task.
 ///
 /// Arguments:
-///     keypair (`*salty_keypair_t`):
+///     keypair (`*salty_keypair_t`, moved):
 ///         Pointer to a key pair.
-///     remote (`*salty_remote_t`):
+///     remote (`*salty_remote_t`, moved):
 ///         Pointer to an event loop remote handle.
-///     ping_interval_seconds (`uint32_t`):
+///         The ownership of this data is moved into the client instance.
+///     ping_interval_seconds (`uint32_t`, copied):
 ///         Request that the server sends a WebSocket ping message at the specified interval.
 ///         Set this argument to `0` to disable ping messages.
-///     initiator_pubkey (`uint8_t[32]`):
-///         Public key of the initiator. This must be a pointer to a 32 byte array.
-///     auth_token (`uint8_t[32]` or `null`):
-///         One-time auth token from the initiator. If set, this must be a pointer
-///         to a 32 byte array. Set this to `null` when restoring a trusted session.
+///     initiator_pubkey (`const *uint8_t`, borrowed):
+///         Public key of the initiator. A 32 byte `uint8_t` array.
+///     auth_token (`const *uint8_t` or `null`, borrowed):
+///         One-time auth token from the initiator. If set, this must be a 32 byte `uint8_t` array.
+///         Set this to `null` when restoring a trusted session.
 /// Returns:
 ///     A `salty_relayed_data_client_ret_t` struct.
 #[no_mangle]
@@ -208,7 +209,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
         error!("Initiator public key is a null pointer");
         return make_error(salty_relayed_data_success_t::NULL_ARGUMENT);
     }
-    let pubkey_slice = slice::from_raw_parts(initiator_pubkey, 32);
+    let pubkey_slice: &[u8] = slice::from_raw_parts(initiator_pubkey, 32);
 
     // Just to rule out stupid mistakes, make sure that the public key is not all-zero
     if pubkey_slice.iter().all(|&x| x == 0) {
@@ -230,7 +231,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
         None
     } else {
         // Get slice
-        let auth_token_slice = slice::from_raw_parts(auth_token, 32);
+        let auth_token_slice: &[u8] = slice::from_raw_parts(auth_token, 32);
 
         // Just to rule out stupid mistakes, make sure that the token is not all-zero
         if auth_token_slice.iter().all(|&x| x == 0) {
@@ -262,6 +263,29 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
         success: salty_relayed_data_success_t::OK,
         client: Box::into_raw(Box::new(client)) as *mut salty_client_t,
         rx_chan: Box::into_raw(Box::new(rx)) as *mut salty_channel_receiver_t,
+    }
+}
+
+/// Get a pointer to the auth token bytes from a `salty_client_t` instance.
+///
+/// Ownership:
+///     The memory is still owned by the `salty_client_t` instance.
+///     Do not reuse the reference after the `salty_client_t` instance has been freed!
+/// Returns:
+///     A null pointer if the parameter is null or if no auth token is set on the client.
+///     Pointer to a 32 byte `uint8_t` array otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
+    ptr: *const salty_client_t,
+) -> *const uint8_t {
+    if ptr.is_null() {
+        warn!("Tried to dereference a null pointer");
+        return ptr::null();
+    }
+    let client = &*(ptr as *const SaltyClient) as &SaltyClient;
+    match client.auth_token() {
+        Some(token) => token.secret_key_bytes().as_ptr(),
+        None => ptr::null(),
     }
 }
 

@@ -97,6 +97,8 @@ void salty_event_loop_free_remote(salty_remote_t *ptr);
  *
  * Thread safety:
  *     The `salty_remote_t` instance may be used from any thread.
+ * Ownership:
+ *     The `salty_remote_t` instance must be freed through `salty_event_loop_free_remote`.
  * Returns:
  *     A reference to the remote handle.
  *     If the pointer passed in is `null`, an error is logged and `null` is returned.
@@ -117,6 +119,10 @@ salty_event_loop_t *salty_event_loop_new(void);
 
 /*
  * Free a `KeyPair` instance.
+ *
+ * Note: If you move the `salty_keypair_t` instance into a `salty_client_t` instance,
+ * you do not need to free it explicitly. It is dropped when the `salty_client_t`
+ * instance is freed.
  */
 void salty_keypair_free(salty_keypair_t *ptr);
 
@@ -124,6 +130,27 @@ void salty_keypair_free(salty_keypair_t *ptr);
  * Create a new `KeyPair` instance and return an opaque pointer to it.
  */
 salty_keypair_t *salty_keypair_new(void);
+
+/*
+ * Get the public key from a `salty_keypair_t` instance.
+ *
+ * Returns:
+ *     A null pointer if the parameter is null.
+ *     Pointer to a 32 byte `uint8_t` array otherwise.
+ */
+const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
+
+/*
+ * Get a pointer to the auth token bytes from a `salty_client_t` instance.
+ *
+ * Ownership:
+ *     The memory is still owned by the `salty_client_t` instance.
+ *     Do not reuse the reference after the `salty_client_t` instance has been freed!
+ * Returns:
+ *     A null pointer if the parameter is null or if no auth token is set on the client.
+ *     Pointer to a 32 byte `uint8_t` array otherwise.
+ */
+const uint8_t *salty_relayed_data_client_auth_token(const salty_client_t *ptr);
 
 /*
  * Free a SaltyRTC client with the Relayed Data task.
@@ -134,11 +161,11 @@ void salty_relayed_data_client_free(salty_client_t *ptr);
  * Initialize a new SaltyRTC client as initiator with the Relayed Data task.
  *
  * Arguments:
- *     keypair (`*salty_keypair_t`):
+ *     keypair (`*salty_keypair_t`, moved):
  *         Pointer to a key pair.
- *     remote (`*salty_remote_t`):
+ *     remote (`*salty_remote_t`, moved):
  *         Pointer to an event loop remote handle.
- *     ping_interval_seconds (`uint32_t`):
+ *     ping_interval_seconds (`uint32_t`, copied):
  *         Request that the server sends a WebSocket ping message at the specified interval.
  *         Set this argument to `0` to disable ping messages.
  * Returns:
@@ -152,18 +179,19 @@ salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(salty_keypair_t
  * Initialize a new SaltyRTC client as responder with the Relayed Data task.
  *
  * Arguments:
- *     keypair (`*salty_keypair_t`):
+ *     keypair (`*salty_keypair_t`, moved):
  *         Pointer to a key pair.
- *     remote (`*salty_remote_t`):
+ *     remote (`*salty_remote_t`, moved):
  *         Pointer to an event loop remote handle.
- *     ping_interval_seconds (`uint32_t`):
+ *         The ownership of this data is moved into the client instance.
+ *     ping_interval_seconds (`uint32_t`, copied):
  *         Request that the server sends a WebSocket ping message at the specified interval.
  *         Set this argument to `0` to disable ping messages.
- *     initiator_pubkey (`uint8_t[32]`):
- *         Public key of the initiator. This must be a pointer to a 32 byte array.
- *     auth_token (`uint8_t[32]` or `null`):
- *         One-time auth token from the initiator. If set, this must be a pointer
- *         to a 32 byte array. Set this to `null` when restoring a trusted session.
+ *     initiator_pubkey (`const *uint8_t`, borrowed):
+ *         Public key of the initiator. A 32 byte `uint8_t` array.
+ *     auth_token (`const *uint8_t` or `null`, borrowed):
+ *         One-time auth token from the initiator. If set, this must be a 32 byte `uint8_t` array.
+ *         Set this to `null` when restoring a trusted session.
  * Returns:
  *     A `salty_relayed_data_client_ret_t` struct.
  */

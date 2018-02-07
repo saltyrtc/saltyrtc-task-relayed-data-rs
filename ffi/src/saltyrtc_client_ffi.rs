@@ -17,6 +17,7 @@
 use std::boxed::Box;
 use std::ptr;
 
+use libc::uint8_t;
 use saltyrtc_client::crypto::KeyPair;
 use tokio_core::reactor::{Core, Remote};
 
@@ -48,7 +49,27 @@ pub extern "C" fn salty_keypair_new() -> *mut salty_keypair_t {
     Box::into_raw(Box::new(KeyPair::new())) as *mut salty_keypair_t
 }
 
+/// Get the public key from a `salty_keypair_t` instance.
+///
+/// Returns:
+///     A null pointer if the parameter is null.
+///     Pointer to a 32 byte `uint8_t` array otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -> *const uint8_t {
+    if ptr.is_null() {
+        warn!("Tried to dereference a null pointer");
+        return ptr::null();
+    }
+    let keypair = &*(ptr as *const KeyPair) as &KeyPair;
+    let pubkey_bytes: &[u8; 32] = &(keypair.public_key().0);
+    pubkey_bytes.as_ptr()
+}
+
 /// Free a `KeyPair` instance.
+///
+/// Note: If you move the `salty_keypair_t` instance into a `salty_client_t` instance,
+/// you do not need to free it explicitly. It is dropped when the `salty_client_t`
+/// instance is freed.
 #[no_mangle]
 pub unsafe extern "C" fn salty_keypair_free(ptr: *mut salty_keypair_t) {
     if ptr.is_null() {
@@ -84,6 +105,8 @@ pub extern "C" fn salty_event_loop_new() -> *mut salty_event_loop_t {
 ///
 /// Thread safety:
 ///     The `salty_remote_t` instance may be used from any thread.
+/// Ownership:
+///     The `salty_remote_t` instance must be freed through `salty_event_loop_free_remote`.
 /// Returns:
 ///     A reference to the remote handle.
 ///     If the pointer passed in is `null`, an error is logged and `null` is returned.
