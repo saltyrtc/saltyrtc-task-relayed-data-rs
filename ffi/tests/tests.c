@@ -32,7 +32,7 @@ int main() {
     uint8_t *i_pubkey = malloc(32 * sizeof(uint8_t));
     if (i_pubkey == NULL) {
         printf("  ERROR: Could not allocate memory for public key");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     const uint8_t *i_pubkey_ref = salty_keypair_public_key(i_keypair);
     memcpy(i_pubkey, i_pubkey_ref, 32 * sizeof(uint8_t));
@@ -48,7 +48,7 @@ int main() {
     uint8_t *i_auth_token = malloc(32 * sizeof(uint8_t));
     if (i_auth_token == NULL) {
         printf("  ERROR: Could not allocate memory for auth token");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     const uint8_t *i_auth_token_ref = salty_relayed_data_client_auth_token(i_client_ret.client);
     memcpy(i_auth_token, i_auth_token_ref, 32 * sizeof(uint8_t));
@@ -86,4 +86,6 @@ int main() {
     salty_event_loop_free(loop);
 
     printf("END C TESTS\n");
+
+    return EXIT_SUCCESS;
 }

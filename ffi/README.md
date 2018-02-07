@@ -16,6 +16,13 @@ Simply run `cargo test`.
 The C tests are built using meson / ninja. They are run automatically when
 calling `cargo test`.
 
+Dependencies:
+
+- meson
+- ninja
+- valgrind
+- splint
+
 If you want to build the tests manually, in the root directory, type:
 
     $ meson build

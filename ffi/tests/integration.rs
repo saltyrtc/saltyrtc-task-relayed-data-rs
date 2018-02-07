@@ -77,3 +77,29 @@ fn c_tests_no_memory_leaks() {
         panic!("Running valgrind failed with non-zero return code");
     }
 }
+
+/// Run `splint` linting tool on the source file.
+///
+/// Note: Memory leak related errors are silenced, since splint cannot know
+/// whether or not Rust code frees data or not.
+///
+/// For that, we have the valgrind test which does dynamic analysis.
+#[test]
+fn c_tests_lint() {
+    let out_dir = env!("CARGO_MANIFEST_DIR");
+    let test_dir = Path::new(out_dir).join("tests");
+
+    let output = Command::new("splint")
+        .arg("-mustfreefresh")
+        .arg("-compdestroy")
+        .arg("tests.c")
+        .current_dir(&test_dir)
+        .output()
+        .expect("Could not run splint");
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("Stdout:\n{}\nStderr:\n{}\n", stdout, stderr);
+        panic!("Running splint failed with non-zero return code");
+    }
+}
