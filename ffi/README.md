@@ -25,6 +25,6 @@ Dependencies:
 
 If you want to build the tests manually, in the root directory, type:
 
-    $ meson build
+    $ CFLAGS=-Werror meson build
     $ cd build
     $ ninja

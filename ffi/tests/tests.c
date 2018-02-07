@@ -16,17 +16,17 @@ int main() {
     uint32_t interval_seconds = 0;
 
     printf("  Creating key pairs\n");
-    salty_keypair_t *i_keypair = salty_keypair_new();
-    salty_keypair_t *r_keypair = salty_keypair_new();
-    salty_keypair_t *unused_keypair = salty_keypair_new();
+    const salty_keypair_t *i_keypair = salty_keypair_new();
+    const salty_keypair_t *r_keypair = salty_keypair_new();
+    const salty_keypair_t *unused_keypair = salty_keypair_new();
 
     printf("  Creating event loop\n");
-    salty_event_loop_t *loop = salty_event_loop_new();
+    const salty_event_loop_t *loop = salty_event_loop_new();
 
     printf("  Getting event loop remote handle\n");
-    salty_remote_t *i_remote = salty_event_loop_get_remote(loop);
-    salty_remote_t *r_remote = salty_event_loop_get_remote(loop);
-    salty_remote_t *unused_remote = salty_event_loop_get_remote(loop);
+    const salty_remote_t *i_remote = salty_event_loop_get_remote(loop);
+    const salty_remote_t *r_remote = salty_event_loop_get_remote(loop);
+    const salty_remote_t *unused_remote = salty_event_loop_get_remote(loop);
 
     printf("  Copying public key from initiator\n");
     uint8_t *i_pubkey = malloc(32 * sizeof(uint8_t));

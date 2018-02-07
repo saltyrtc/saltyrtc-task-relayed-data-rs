@@ -1,7 +1,5 @@
 //! FFI bindings for the `saltyrtc-client` crate.
 //!
-//! The implementation makes use of the opaque pointer pattern.
-//!
 //! Note: These bindings should not be used directly to build a native library,
 //! instead a custom library crate should inherit from both this crate and
 //! from the task FFI crate.
@@ -45,8 +43,8 @@ pub enum salty_client_t {}
 
 /// Create a new `KeyPair` instance and return an opaque pointer to it.
 #[no_mangle]
-pub extern "C" fn salty_keypair_new() -> *mut salty_keypair_t {
-    Box::into_raw(Box::new(KeyPair::new())) as *mut salty_keypair_t
+pub extern "C" fn salty_keypair_new() -> *const salty_keypair_t {
+    Box::into_raw(Box::new(KeyPair::new())) as *const salty_keypair_t
 }
 
 /// Get the public key from a `salty_keypair_t` instance.
@@ -71,7 +69,7 @@ pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -
 /// you do not need to free it explicitly. It is dropped when the `salty_client_t`
 /// instance is freed.
 #[no_mangle]
-pub unsafe extern "C" fn salty_keypair_free(ptr: *mut salty_keypair_t) {
+pub unsafe extern "C" fn salty_keypair_free(ptr: *const salty_keypair_t) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
         return;
@@ -91,9 +89,9 @@ pub unsafe extern "C" fn salty_keypair_free(ptr: *mut salty_keypair_t) {
 ///     if creation of the event loop failed.
 ///     In the case of a failure, the error will be logged.
 #[no_mangle]
-pub extern "C" fn salty_event_loop_new() -> *mut salty_event_loop_t {
+pub extern "C" fn salty_event_loop_new() -> *const salty_event_loop_t {
     match Core::new() {
-        Ok(reactor) => Box::into_raw(Box::new(reactor)) as *mut salty_event_loop_t,
+        Ok(reactor) => Box::into_raw(Box::new(reactor)) as *const salty_event_loop_t,
         Err(e) => {
             error!("Error: Could not create reactor core: {}", e);
             ptr::null_mut()
@@ -106,23 +104,24 @@ pub extern "C" fn salty_event_loop_new() -> *mut salty_event_loop_t {
 /// Thread safety:
 ///     The `salty_remote_t` instance may be used from any thread.
 /// Ownership:
-///     The `salty_remote_t` instance must be freed through `salty_event_loop_free_remote`.
+///     The `salty_remote_t` instance must be freed through `salty_event_loop_free_remote`,
+///     or by moving it into a `salty_client_t` instance.
 /// Returns:
 ///     A reference to the remote handle.
 ///     If the pointer passed in is `null`, an error is logged and `null` is returned.
 #[no_mangle]
-pub unsafe extern "C" fn salty_event_loop_get_remote(ptr: *mut salty_event_loop_t) -> *mut salty_remote_t {
+pub unsafe extern "C" fn salty_event_loop_get_remote(ptr: *const salty_event_loop_t) -> *const salty_remote_t {
     if ptr.is_null() {
         error!("Called salty_event_loop_get_remote on a null pointer");
-        return ptr::null_mut();
+        return ptr::null();
     }
     let core = ptr as *mut Core;
-    Box::into_raw(Box::new((*core).remote())) as *mut salty_remote_t
+    Box::into_raw(Box::new((*core).remote())) as *const salty_remote_t
 }
 
 /// Free an event loop remote handle.
 #[no_mangle]
-pub unsafe extern "C" fn salty_event_loop_free_remote(ptr: *mut salty_remote_t) {
+pub unsafe extern "C" fn salty_event_loop_free_remote(ptr: *const salty_remote_t) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
         return;
@@ -132,7 +131,7 @@ pub unsafe extern "C" fn salty_event_loop_free_remote(ptr: *mut salty_remote_t) 
 
 /// Free an event loop instance.
 #[no_mangle]
-pub unsafe extern "C" fn salty_event_loop_free(ptr: *mut salty_event_loop_t) {
+pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
         return;

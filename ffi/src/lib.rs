@@ -4,6 +4,11 @@
 //! The downside of this is that only one task can be specified, not multiple.
 //! That's a problem that can be solved later on.
 //!
+//! The implementation makes use of the opaque pointer pattern.
+//!
+//! A note on pointers: All const pointers returned by Rust functions should not be modified
+//! outside of Rust functions.
+//!
 //! Ultimately, these bindings allow C compatible programs to do the following things:
 //!
 //! - Instantiate a SaltyRTC client
@@ -73,8 +78,8 @@ pub enum salty_relayed_data_success_t {
 #[no_mangle]
 pub struct salty_relayed_data_client_ret_t {
     pub success: salty_relayed_data_success_t,
-    pub client: *mut salty_client_t,
-    pub rx_chan: *mut salty_channel_receiver_t,
+    pub client: *const salty_client_t,
+    pub rx_chan: *const salty_channel_receiver_t,
 }
 
 
@@ -91,8 +96,8 @@ fn make_error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client
 
 /// Helper function to parse arguments and to create a new `SaltyClientBuilder`.
 unsafe fn create_client_builder(
-    keypair: *mut salty_keypair_t,
-    remote: *mut salty_remote_t,
+    keypair: *const salty_keypair_t,
+    remote: *const salty_remote_t,
     ping_interval_seconds: uint32_t,
 ) -> Result<(SaltyClientBuilder, mpsc::UnboundedReceiver<Message>), salty_relayed_data_success_t> {
     // Null checks
@@ -145,8 +150,8 @@ unsafe fn create_client_builder(
 ///     A `salty_relayed_data_client_ret_t` struct.
 #[no_mangle]
 pub unsafe extern "C" fn salty_relayed_data_initiator_new(
-    keypair: *mut salty_keypair_t,
-    remote: *mut salty_remote_t,
+    keypair: *const salty_keypair_t,
+    remote: *const salty_remote_t,
     ping_interval_seconds: uint32_t,
 ) -> salty_relayed_data_client_ret_t {
     // Parse arguments and create SaltyRTC builder
@@ -179,21 +184,20 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 ///         Pointer to a key pair.
 ///     remote (`*salty_remote_t`, moved):
 ///         Pointer to an event loop remote handle.
-///         The ownership of this data is moved into the client instance.
 ///     ping_interval_seconds (`uint32_t`, copied):
 ///         Request that the server sends a WebSocket ping message at the specified interval.
 ///         Set this argument to `0` to disable ping messages.
-///     initiator_pubkey (`const *uint8_t`, borrowed):
+///     initiator_pubkey (`*uint8_t`, borrowed):
 ///         Public key of the initiator. A 32 byte `uint8_t` array.
-///     auth_token (`const *uint8_t` or `null`, borrowed):
+///     auth_token (`*uint8_t` or `null`, borrowed):
 ///         One-time auth token from the initiator. If set, this must be a 32 byte `uint8_t` array.
 ///         Set this to `null` when restoring a trusted session.
 /// Returns:
 ///     A `salty_relayed_data_client_ret_t` struct.
 #[no_mangle]
 pub unsafe extern "C" fn salty_relayed_data_responder_new(
-    keypair: *mut salty_keypair_t,
-    remote: *mut salty_remote_t,
+    keypair: *const salty_keypair_t,
+    remote: *const salty_remote_t,
     ping_interval_seconds: uint32_t,
     initiator_pubkey: *const uint8_t,
     auth_token: *const uint8_t,
@@ -261,8 +265,8 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
-        client: Box::into_raw(Box::new(client)) as *mut salty_client_t,
-        rx_chan: Box::into_raw(Box::new(rx)) as *mut salty_channel_receiver_t,
+        client: Box::into_raw(Box::new(client)) as *const salty_client_t,
+        rx_chan: Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_t,
     }
 }
 
@@ -292,7 +296,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
 /// Free a SaltyRTC client with the Relayed Data task.
 #[no_mangle]
 pub unsafe extern "C" fn salty_relayed_data_client_free(
-    ptr: *mut salty_client_t,
+    ptr: *const salty_client_t,
 ) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
@@ -304,7 +308,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
 /// Free a `salty_channel_receiver_t` instance.
 #[no_mangle]
 pub unsafe extern "C" fn salty_channel_receiver_free(
-    ptr: *mut salty_channel_receiver_t,
+    ptr: *const salty_channel_receiver_t,
 ) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
