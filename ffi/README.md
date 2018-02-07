@@ -9,6 +9,12 @@ To build for iOS, install `cargo-lipo`, then run
 
     $ cargo lipo --release
 
+
+## C Example
+
+To see a C usage example, please take a look at `tests/tests.c`.
+
+
 ## Testing
 
 ### Rust tests
