@@ -30,6 +30,7 @@ fn build_tests() -> (MutexGuard<'static, ()>, PathBuf) {
     println!("Running meson...");
     Command::new("meson")
         .arg(build_dir.to_str().unwrap())
+        .env("CFLAGS", "-Werror")
         .output()
         .expect("Could not run meson to build C tests");
 
