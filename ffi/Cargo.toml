@@ -5,7 +5,7 @@ authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
 
 [lib]
 name = "saltyrtc_task_relayed_data_ffi"
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
 libc = "0.2"
