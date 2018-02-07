@@ -5,6 +5,10 @@ To build the crate, simply run `cargo build` or `cargo build --release`.
 If you want to skip the generation of the C headers, set the env variable
 `SKIP_CBINDGEN=1` before building.
 
+To build for iOS, install `cargo-lipo`, then run
+
+    $ cargo lipo --release
+
 ## Testing
 
 ### Rust tests
