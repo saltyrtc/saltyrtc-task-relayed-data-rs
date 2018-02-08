@@ -58,6 +58,8 @@ typedef struct salty_channel_receiver_t salty_channel_receiver_t;
 
 /*
  * A SaltyRTC client instance.
+ *
+ * Internally, this is a `Rc<RefCell<SaltyClient>>`.
  */
 typedef struct salty_client_t salty_client_t;
 
@@ -186,7 +188,8 @@ bool salty_log_init(uint8_t level);
  *     The memory is still owned by the `salty_client_t` instance.
  *     Do not reuse the reference after the `salty_client_t` instance has been freed!
  * Returns:
- *     A null pointer if the parameter is null or if no auth token is set on the client.
+ *     A null pointer if the parameter is null, if no auth token is set on the client
+ *     or if the rc cannot be borrowed.
  *     Pointer to a 32 byte `uint8_t` array otherwise.
  */
 const uint8_t *salty_relayed_data_client_auth_token(const salty_client_t *ptr);

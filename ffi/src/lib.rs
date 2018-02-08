@@ -30,7 +30,10 @@ extern crate tokio_core;
 mod constants;
 pub mod saltyrtc_client_ffi;
 
+use std::cell::RefCell;
+use std::mem;
 use std::ptr;
+use std::rc::Rc;
 use std::slice;
 use std::time::Duration;
 
@@ -178,7 +181,7 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
-        client: Box::into_raw(Box::new(client)) as *mut salty_client_t,
+        client: Rc::into_raw(Rc::new(RefCell::new(client))) as *mut salty_client_t,
         rx_chan: Box::into_raw(Box::new(rx)) as *mut salty_channel_receiver_t,
     }
 }
@@ -271,7 +274,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
-        client: Box::into_raw(Box::new(client)) as *const salty_client_t,
+        client: Rc::into_raw(Rc::new(RefCell::new(client))) as *const salty_client_t,
         rx_chan: Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_t,
     }
 }
@@ -282,7 +285,8 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 ///     The memory is still owned by the `salty_client_t` instance.
 ///     Do not reuse the reference after the `salty_client_t` instance has been freed!
 /// Returns:
-///     A null pointer if the parameter is null or if no auth token is set on the client.
+///     A null pointer if the parameter is null, if no auth token is set on the client
+///     or if the rc cannot be borrowed.
 ///     Pointer to a 32 byte `uint8_t` array otherwise.
 #[no_mangle]
 pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
@@ -292,11 +296,27 @@ pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
         warn!("Tried to dereference a null pointer");
         return ptr::null();
     }
-    let client = &*(ptr as *const SaltyClient) as &SaltyClient;
-    match client.auth_token() {
-        Some(token) => token.secret_key_bytes().as_ptr(),
-        None => ptr::null(),
-    }
+
+    // Recreate Rc from pointer
+    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(ptr as *const RefCell<SaltyClient>);
+
+    // Determine pointer to auth token
+    let retval = match client_rc.try_borrow() {
+        Ok(client_ref) => match client_ref.auth_token() {
+            Some(token) => token.secret_key_bytes().as_ptr(),
+            None => ptr::null(),
+        },
+        Err(e) => {
+            error!("Could not borrow client RC: {}", e);
+            ptr::null()
+        }
+    };
+
+    // We must ensure that the Rc is not dropped, otherwise – if it's the last reference to
+    // the underlying data – the data on the heap would be dropped too.
+    mem::forget(client_rc);
+
+    retval
 }
 
 /// Free a SaltyRTC client with the Relayed Data task.
@@ -308,7 +328,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut SaltyClient);
+    Rc::from_raw(ptr as *const RefCell<SaltyClient>);
 }
 
 /// Free a `salty_channel_receiver_t` instance.

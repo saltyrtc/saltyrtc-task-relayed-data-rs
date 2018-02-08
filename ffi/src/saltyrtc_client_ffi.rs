@@ -43,6 +43,8 @@ pub enum salty_event_loop_t {}
 pub enum salty_remote_t {}
 
 /// A SaltyRTC client instance.
+///
+/// Internally, this is a `Rc<RefCell<SaltyClient>>`.
 #[no_mangle]
 pub enum salty_client_t {}
 
