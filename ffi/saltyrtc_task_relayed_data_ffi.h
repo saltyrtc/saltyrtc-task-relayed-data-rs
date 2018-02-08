@@ -10,6 +10,18 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+#define LEVEL_DEBUG 1
+
+#define LEVEL_ERROR 4
+
+#define LEVEL_INFO 2
+
+#define LEVEL_OFF 5
+
+#define LEVEL_TRACE 0
+
+#define LEVEL_WARN 3
+
 /*
  * Result type with all potential error codes.
  *
@@ -140,6 +152,32 @@ const salty_keypair_t *salty_keypair_new(void);
  *     Pointer to a 32 byte `uint8_t` array otherwise.
  */
 const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
+
+/*
+ * Change the log level of the logger.
+ *
+ * Arguments:
+ *     level (uint8_t, copied):
+ *         The log level, must be in the range 0 (TRACE) to 5 (OFF).
+ *         See `LEVEL_*` constants for reference.
+ * Returns:
+ *     A boolean indicating whether logging was updated successfully.
+ *     If updating the logger failed, an error message will be written to stdout.
+ */
+bool salty_log_change_level(uint8_t level);
+
+/*
+ * Initialize logging to stdout with log messages up to the specified log level.
+ *
+ * Arguments:
+ *     level (uint8_t, copied):
+ *         The log level, must be in the range 0 (TRACE) to 5 (OFF).
+ *         See `LEVEL_*` constants for reference.
+ * Returns:
+ *     A boolean indicating whether logging was setup successfully.
+ *     If setting up the logger failed, an error message will be written to stdout.
+ */
+bool salty_log_init(uint8_t level);
 
 /*
  * Get a pointer to the auth token bytes from a `salty_client_t` instance.

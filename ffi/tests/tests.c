@@ -12,6 +12,15 @@
 int main() {
     printf("START C TESTS\n");
 
+    printf("  Initializing logger (level DEBUG)\n");
+    if (!salty_log_init(LEVEL_INFO)) {
+        exit(EXIT_FAILURE);
+    }
+    printf("  Updating logger (level WARN)\n");
+    if (!salty_log_change_level(LEVEL_WARN)) {
+        exit(EXIT_FAILURE);
+    }
+
     // Variables
     uint32_t interval_seconds = 0;
 

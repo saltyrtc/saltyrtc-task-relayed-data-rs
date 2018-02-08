@@ -14,10 +14,18 @@
 
 use std::boxed::Box;
 use std::ptr;
+use std::sync::Mutex;
 
 use libc::uint8_t;
+use log::LevelFilter;
+use log4rs::{Handle, init_config};
+use log4rs::append::console::ConsoleAppender;
+use log4rs::config::{Appender, Config, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
 use saltyrtc_client::crypto::KeyPair;
 use tokio_core::reactor::{Core, Remote};
+
+use constants::*;
 
 
 // *** TYPES *** //
@@ -37,6 +45,150 @@ pub enum salty_remote_t {}
 /// A SaltyRTC client instance.
 #[no_mangle]
 pub enum salty_client_t {}
+
+
+// *** LOGGING *** //
+
+lazy_static! {
+    static ref LOG_HANDLE: Mutex<Option<Handle>> = Mutex::new(None);
+}
+
+fn make_log_config(level: LevelFilter) -> Result<Config, String> {
+    // Log format
+    let format = "{d(%Y-%m-%dT%H:%M:%S%.3f)} [{l:<5}] {m} (({f}:{L})){n}";
+
+    // Appender
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(format)))
+        .build();
+
+    // Create logging config object
+    let config_res = Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .logger(Logger::builder().build("saltyrtc_client", level))
+        .logger(Logger::builder().build("saltyrtc_task_relayed_data", level))
+        .logger(Logger::builder().build("saltyrtc_task_relayed_data_ffi", level))
+        .build(Root::builder().appender("stdout").build(level));
+
+    config_res.map_err(|e| format!("Could not make log config: {}", e))
+}
+
+/// Initialize logging to stdout with log messages up to the specified log level.
+///
+/// Arguments:
+///     level (uint8_t, copied):
+///         The log level, must be in the range 0 (TRACE) to 5 (OFF).
+///         See `LEVEL_*` constants for reference.
+/// Returns:
+///     A boolean indicating whether logging was setup successfully.
+///     If setting up the logger failed, an error message will be written to stdout.
+#[no_mangle]
+pub extern "C" fn salty_log_init(level: uint8_t) -> bool {
+    // Get access to static log handle
+    let mut handle_opt = match LOG_HANDLE.lock() {
+        Ok(handle_opt) => handle_opt,
+        Err(e) => {
+            eprintln!("salty_log_init: Could not get access to static logger mutex: {}", e);
+            return false;
+        }
+    };
+    if handle_opt.is_some() {
+        eprintln!("salty_log_init: A logger is already initialized");
+        return false;
+    }
+
+    // Log level
+    let level_filter = match level {
+        LEVEL_TRACE => LevelFilter::Trace,
+        LEVEL_DEBUG => LevelFilter::Debug,
+        LEVEL_INFO => LevelFilter::Info,
+        LEVEL_WARN => LevelFilter::Warn,
+        LEVEL_ERROR => LevelFilter::Error,
+        LEVEL_OFF => LevelFilter::Off,
+        _ => {
+            eprintln!("salty_log_init: Invalid log level: {}", level);
+            return false;
+        }
+    };
+
+    // Config
+    let config = match make_log_config(level_filter) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("salty_log_init: {}", e);
+            return false;
+        }
+    };
+
+    // Initialize logger
+    let handle = match init_config(config) {
+        Ok(handle) => handle,
+        Err(e) => {
+            eprintln!("salty_log_init: Could not initialize logger: {}", e);
+            return false;
+        }
+    };
+
+    // Update static logger instance
+    *handle_opt = Some(handle);
+
+    // Success!
+    true
+}
+
+/// Change the log level of the logger.
+///
+/// Arguments:
+///     level (uint8_t, copied):
+///         The log level, must be in the range 0 (TRACE) to 5 (OFF).
+///         See `LEVEL_*` constants for reference.
+/// Returns:
+///     A boolean indicating whether logging was updated successfully.
+///     If updating the logger failed, an error message will be written to stdout.
+#[no_mangle]
+pub extern "C" fn salty_log_change_level(level: uint8_t) -> bool {
+    // Log level
+    let level_filter = match level {
+        LEVEL_TRACE => LevelFilter::Trace,
+        LEVEL_DEBUG => LevelFilter::Debug,
+        LEVEL_INFO => LevelFilter::Info,
+        LEVEL_WARN => LevelFilter::Warn,
+        LEVEL_ERROR => LevelFilter::Error,
+        LEVEL_OFF => LevelFilter::Off,
+        _ => {
+            eprintln!("salty_log_change_level: Invalid log level: {}", level);
+            return false;
+        }
+    };
+
+    // Get access to static log handle
+    let mut handle_opt = match LOG_HANDLE.lock() {
+        Ok(opt_handle) => opt_handle,
+        Err(e) => {
+            eprintln!("salty_log_change_level: Could not get access to static logger mutex: {}", e);
+            return false;
+        }
+    };
+    if handle_opt.is_none() {
+        eprintln!("salty_log_change_level: Logger is not initialized");
+        return false;
+    }
+
+    // Config
+    let config = match make_log_config(level_filter) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("salty_log_change_level: {}", e);
+            return false;
+        }
+    };
+
+    // Update handle
+    handle_opt.as_mut().unwrap().set_config(config);
+
+    // Success!
+    true
+}
 
 
 // *** KEY PAIRS *** //

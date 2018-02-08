@@ -19,12 +19,15 @@
 //! - Terminate the connection
 #![allow(non_camel_case_types)]
 
+#[macro_use] extern crate lazy_static;
 extern crate libc;
 #[macro_use] extern crate log;
+extern crate log4rs;
 extern crate saltyrtc_client;
 extern crate saltyrtc_task_relayed_data;
 extern crate tokio_core;
 
+mod constants;
 pub mod saltyrtc_client_ffi;
 
 use std::ptr;
@@ -39,6 +42,8 @@ use saltyrtc_client::tasks::BoxedTask;
 pub use saltyrtc_client_ffi::{salty_client_t, salty_keypair_t, salty_remote_t};
 use saltyrtc_task_relayed_data::{RelayedDataTask, Message};
 use tokio_core::reactor::Remote;
+
+pub use constants::*;
 
 
 // *** TYPES *** //
@@ -133,6 +138,7 @@ unsafe fn create_client_builder(
 
     Ok((builder, rx))
 }
+
 
 // *** MAIN FUNCTIONALITY *** //
 
