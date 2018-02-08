@@ -12,13 +12,50 @@
 int main() {
     printf("START C TESTS\n");
 
+    printf("  Reading DER formatted test CA certificate\n");
+
+    // Open file
+    const char *const ca_cert_name = "saltyrtc.der";
+    FILE *fd = fopen(ca_cert_name, "rb");
+    if (fd == NULL) {
+        printf("    ERROR: Could not open `%s`\n", ca_cert_name);
+        return EXIT_FAILURE;
+    }
+
+    // Get file size
+    if (fseek(fd, 0, SEEK_END) != 0) {
+        printf("    ERROR: Could not fseek `%s`\n", ca_cert_name);
+        return EXIT_FAILURE;
+    }
+    long ca_cert_len = ftell(fd);
+    if (ca_cert_len < 0) {
+        printf("    ERROR: Could not ftell `%s`\n", ca_cert_name);
+        return EXIT_FAILURE;
+    }
+    if (fseek(fd, 0, SEEK_SET) != 0) {
+        printf("    ERROR: Could not fseek `%s`\n", ca_cert_name);
+        return EXIT_FAILURE;
+    }
+
+    // Prepare buffer
+    uint8_t *ca_cert = malloc(ca_cert_len);
+    if (ca_cert == NULL) {
+        printf("    ERROR: Could not malloc %ld bytes\n", ca_cert_len);
+        return EXIT_FAILURE;
+    }
+    size_t read_bytes = fread(ca_cert, ca_cert_len, 1, fd);
+    if (read_bytes != 1) {
+        printf("    ERROR: Could not read file\n");
+        return EXIT_FAILURE;
+    }
+
     printf("  Initializing logger (level DEBUG)\n");
     if (!salty_log_init(LEVEL_INFO)) {
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
     printf("  Updating logger (level WARN)\n");
     if (!salty_log_change_level(LEVEL_WARN)) {
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     // Variables
@@ -40,8 +77,8 @@ int main() {
     printf("  Copying public key from initiator\n");
     uint8_t *i_pubkey = malloc(32 * sizeof(uint8_t));
     if (i_pubkey == NULL) {
-        printf("  ERROR: Could not allocate memory for public key");
-        exit(EXIT_FAILURE);
+        printf("    ERROR: Could not allocate memory for public key");
+        return EXIT_FAILURE;
     }
     const uint8_t *i_pubkey_ref = salty_keypair_public_key(i_keypair);
     memcpy(i_pubkey, i_pubkey_ref, 32 * sizeof(uint8_t));
@@ -56,8 +93,8 @@ int main() {
     printf("  Copying auth token from initiator\n");
     uint8_t *i_auth_token = malloc(32 * sizeof(uint8_t));
     if (i_auth_token == NULL) {
-        printf("  ERROR: Could not allocate memory for auth token");
-        exit(EXIT_FAILURE);
+        printf("    ERROR: Could not allocate memory for auth token");
+        return EXIT_FAILURE;
     }
     const uint8_t *i_auth_token_ref = salty_relayed_data_client_auth_token(i_client_ret.client);
     memcpy(i_auth_token, i_auth_token_ref, 32 * sizeof(uint8_t));
@@ -73,14 +110,15 @@ int main() {
 
     printf("  Connect initiator\n");
     salty_client_connect_success_t i_connect_success = salty_client_connect(
-        "http://127.0.0.1:8765",
+        "wss://localhost:8765",
         i_client_ret.client,
         loop,
-        NULL,
-        0
+        ca_cert,
+        ca_cert_len
     );
     if (i_connect_success != CONNECT_OK) {
-        printf("  ERROR: Connecting was not successful\n");
+        printf("    ERROR: Connecting was not successful\n");
+        return EXIT_FAILURE;
     } else {
         printf("  OK: Connection was successful\n");
     }

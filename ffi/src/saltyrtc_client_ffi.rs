@@ -389,7 +389,7 @@ pub unsafe extern "C" fn salty_client_connect(
     let core = &mut *(event_loop as *mut Core) as &mut Core;
 
     // Read CA certificate (if present)
-    let ca_cert: Option<Certificate> = if ca_cert.is_null() {
+    let ca_cert_opt: Option<Certificate> = if ca_cert.is_null() {
         None
     } else {
         let bytes: &[u8] = slice::from_raw_parts(ca_cert, ca_cert_len as usize);
@@ -414,12 +414,12 @@ pub unsafe extern "C" fn salty_client_connect(
             }
         }}
     }
-    let supported_protocols = [Protocol::Tlsv12, Protocol::Tlsv11];
+    let supported_protocols = [Protocol::Tlsv12, Protocol::Tlsv11, Protocol::Tlsv10];
     let mut tls_builder = unwrap_or_tls_error!(TlsConnector::builder(),
         "Could not create TlsConnectorBuilder: {}");
     unwrap_or_tls_error!(tls_builder.supported_protocols(&supported_protocols),
         "Could not set supported TLS protocols: {}");
-    if let Some(cert) = ca_cert {
+    if let Some(cert) = ca_cert_opt {
         unwrap_or_tls_error!(tls_builder.add_root_certificate(cert),
             "Could not add CA certificate to TlsConnectorBuilder: {}");
     }
