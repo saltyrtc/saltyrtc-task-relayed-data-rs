@@ -21,6 +21,9 @@ To see a C usage example, please take a look at `tests/tests.c`.
 
 Simply run `cargo test`.
 
+Note: The integration tests currently require a `saltyrtc.der` test CA
+certificate in the root directory of the repository.
+
 ### C tests
 
 The C tests are built using meson / ninja. They are run automatically when

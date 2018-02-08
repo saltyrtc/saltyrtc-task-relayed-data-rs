@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+use std::fs::copy;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Mutex, MutexGuard};
@@ -40,6 +41,10 @@ fn build_tests() -> (MutexGuard<'static, ()>, PathBuf) {
         .output()
         .expect("Could not run ninja to build C tests");
     assert_output_success(output);
+
+    println!("Copying test certificate...");
+    copy("../saltyrtc.der", build_dir.join("saltyrtc.der"))
+        .expect("Could not copy test certificate (saltyrtc.der)");
 
     (guard, build_dir)
 }
