@@ -13,16 +13,22 @@
 //! re-export all relevant types and generate their own header files.
 
 use std::boxed::Box;
+use std::cell::RefCell;
+use std::ffi::CStr;
+use std::mem;
 use std::ptr;
+use std::rc::Rc;
 use std::sync::Mutex;
 
-use libc::uint8_t;
+use libc::{uint8_t, c_char};
 use log::LevelFilter;
-use log4rs::{Handle, init_config};
+use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
+use saltyrtc_client::{SaltyClient, connect};
 use saltyrtc_client::crypto::KeyPair;
+use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol};
 use tokio_core::reactor::{Core, Remote};
 
 use constants::*;
@@ -39,6 +45,8 @@ pub enum salty_keypair_t {}
 pub enum salty_event_loop_t {}
 
 /// A remote handle to an event loop instance.
+///
+/// This type is thread safe.
 #[no_mangle]
 pub enum salty_remote_t {}
 
@@ -48,11 +56,33 @@ pub enum salty_remote_t {}
 #[no_mangle]
 pub enum salty_client_t {}
 
+/// Result type with all potential error codes.
+///
+/// If no error happened, the value should be `OK` (0).
+#[repr(u8)]
+#[no_mangle]
+pub enum salty_client_connect_success_t {
+    /// No error.
+    CONNECT_OK = 0,
+
+    /// One of the arguments was a `null` pointer.
+    CONNECT_NULL_ARGUMENT = 1,
+
+    /// The URL is invalid (probably not UTF-8)
+    CONNECT_INVALID_URL = 2,
+
+    /// TLS related error
+    CONNECT_TLS_ERROR = 3,
+
+    /// Another connection error
+    CONNECT_ERROR = 9,
+}
+
 
 // *** LOGGING *** //
 
 lazy_static! {
-    static ref LOG_HANDLE: Mutex<Option<Handle>> = Mutex::new(None);
+    static ref LOG_HANDLE: Mutex<Option<LogHandle>> = Mutex::new(None);
 }
 
 fn make_log_config(level: LevelFilter) -> Result<Config, String> {
@@ -77,7 +107,7 @@ fn make_log_config(level: LevelFilter) -> Result<Config, String> {
 
 /// Initialize logging to stdout with log messages up to the specified log level.
 ///
-/// Arguments:
+/// Parameters:
 ///     level (uint8_t, copied):
 ///         The log level, must be in the range 0 (TRACE) to 5 (OFF).
 ///         See `LEVEL_*` constants for reference.
@@ -140,7 +170,7 @@ pub extern "C" fn salty_log_init(level: uint8_t) -> bool {
 
 /// Change the log level of the logger.
 ///
-/// Arguments:
+/// Parameters:
 ///     level (uint8_t, copied):
 ///         The log level, must be in the range 0 (TRACE) to 5 (OFF).
 ///         See `LEVEL_*` constants for reference.
@@ -291,4 +321,99 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
         return;
     }
     Box::from_raw(ptr as *mut Core);
+}
+
+
+// *** CONNECTION *** //
+
+/// Connect to the specified SaltyRTC server.
+///
+/// This is a blocking call. It will end once the connection has been terminated.
+///
+/// Parameters:
+///     url (`*c_char`, null terminated, borrowed):
+///         Char pointer (null terminated UTF-8 encoded C string)
+///     client (`*salty_client_t`, borrowed):
+///         Pointer to a `salty_client_t` instance.
+///     event_loop (`*salty_event_loop_t`, borrowed):
+///         The event loop that is also associated with the task.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_connect(
+    url: *const c_char,
+    client: *const salty_client_t,
+    event_loop: *const salty_event_loop_t,
+) -> salty_client_connect_success_t {
+    // Null pointer checks
+    if url.is_null() {
+        error!("URL pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
+    if client.is_null() {
+        error!("Client pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
+    if event_loop.is_null() {
+        error!("Event loop pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
+
+    // Get URL string
+    let url = match CStr::from_ptr(url).to_str() {
+        Ok(url) => url,
+        Err(_) => {
+            error!("url argument is not valid UTF-8");
+            return salty_client_connect_success_t::CONNECT_INVALID_URL;
+        },
+    };
+
+    // Recreate client RC
+    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
+
+    // Clone RC so that the client instance can be reused
+    let client_rc_clone = client_rc.clone();
+    mem::forget(client_rc);
+
+    // Get event loop reference
+    let core = &mut *(event_loop as *mut Core) as &mut Core;
+
+    // Create TlsConnector
+    macro_rules! unwrap_or_tls_error {
+        ($obj:expr, $errmsg:expr) => {{
+            match $obj {
+                Ok(val) => val,
+                Err(e) => {
+                    error!($errmsg, e);
+                    return salty_client_connect_success_t::CONNECT_TLS_ERROR;
+                }
+            }
+        }}
+    }
+    let supported_protocols = [Protocol::Tlsv12, Protocol::Tlsv11];
+    let mut tls_builder = unwrap_or_tls_error!(TlsConnector::builder(),
+        "Could not create TlsConnectorBuilder: {}");
+    unwrap_or_tls_error!(tls_builder.supported_protocols(&supported_protocols),
+        "Could not set supported TLS protocols: {}");
+    let tls_connector = unwrap_or_tls_error!(tls_builder.build(),
+        "Could not create TlsConnector: {}");
+
+    // Create connect future
+    let future = match connect(url, Some(tls_connector), &core.handle(), client_rc_clone) {
+        Ok(future) => future,
+        Err(e) => {
+            error!("Could not create connect future: {}", e);
+            return salty_client_connect_success_t::CONNECT_ERROR;
+        },
+    };
+
+    // Run future to completion
+    match core.run(future) {
+        Ok(_) => {
+            info!("Connection has ended");
+            salty_client_connect_success_t::CONNECT_OK
+        },
+        Err(e) => {
+            error!("Connection error: {}", e);
+            salty_client_connect_success_t::CONNECT_ERROR
+        },
+    }
 }

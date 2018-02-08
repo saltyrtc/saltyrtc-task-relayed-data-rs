@@ -27,6 +27,35 @@
  *
  * If no error happened, the value should be `OK` (0).
  */
+enum salty_client_connect_success_t {
+  /*
+   * No error.
+   */
+  CONNECT_OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
+  CONNECT_NULL_ARGUMENT = 1,
+  /*
+   * The URL is invalid (probably not UTF-8)
+   */
+  CONNECT_INVALID_URL = 2,
+  /*
+   * TLS related error
+   */
+  CONNECT_TLS_ERROR = 3,
+  /*
+   * Another connection error
+   */
+  CONNECT_ERROR = 9,
+};
+typedef uint8_t salty_client_connect_success_t;
+
+/*
+ * Result type with all potential error codes.
+ *
+ * If no error happened, the value should be `OK` (0).
+ */
 enum salty_relayed_data_success_t {
   /*
    * No error.
@@ -75,6 +104,8 @@ typedef struct salty_keypair_t salty_keypair_t;
 
 /*
  * A remote handle to an event loop instance.
+ *
+ * This type is thread safe.
  */
 typedef struct salty_remote_t salty_remote_t;
 
@@ -95,6 +126,23 @@ typedef struct {
  * Free a `salty_channel_receiver_t` instance.
  */
 void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
+
+/*
+ * Connect to the specified SaltyRTC server.
+ *
+ * This is a blocking call. It will end once the connection has been terminated.
+ *
+ * Parameters:
+ *     url (`*c_char`, null terminated, borrowed):
+ *         Char pointer (null terminated UTF-8 encoded C string)
+ *     client (`*salty_client_t`, borrowed):
+ *         Pointer to a `salty_client_t` instance.
+ *     event_loop (`*salty_event_loop_t`, borrowed):
+ *         The event loop that is also associated with the task.
+ */
+salty_client_connect_success_t salty_client_connect(const char *url,
+                                                    const salty_client_t *client,
+                                                    const salty_event_loop_t *event_loop);
 
 /*
  * Free an event loop instance.
@@ -158,7 +206,7 @@ const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
 /*
  * Change the log level of the logger.
  *
- * Arguments:
+ * Parameters:
  *     level (uint8_t, copied):
  *         The log level, must be in the range 0 (TRACE) to 5 (OFF).
  *         See `LEVEL_*` constants for reference.
@@ -171,7 +219,7 @@ bool salty_log_change_level(uint8_t level);
 /*
  * Initialize logging to stdout with log messages up to the specified log level.
  *
- * Arguments:
+ * Parameters:
  *     level (uint8_t, copied):
  *         The log level, must be in the range 0 (TRACE) to 5 (OFF).
  *         See `LEVEL_*` constants for reference.
@@ -202,7 +250,7 @@ void salty_relayed_data_client_free(const salty_client_t *ptr);
 /*
  * Initialize a new SaltyRTC client as initiator with the Relayed Data task.
  *
- * Arguments:
+ * Parameters:
  *     keypair (`*salty_keypair_t`, moved):
  *         Pointer to a key pair.
  *     remote (`*salty_remote_t`, moved):
@@ -220,7 +268,7 @@ salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(const salty_key
 /*
  * Initialize a new SaltyRTC client as responder with the Relayed Data task.
  *
- * Arguments:
+ * Parameters:
  *     keypair (`*salty_keypair_t`, moved):
  *         Pointer to a key pair.
  *     remote (`*salty_remote_t`, moved):

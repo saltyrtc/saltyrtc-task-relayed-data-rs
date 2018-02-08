@@ -147,7 +147,7 @@ unsafe fn create_client_builder(
 
 /// Initialize a new SaltyRTC client as initiator with the Relayed Data task.
 ///
-/// Arguments:
+/// Parameters:
 ///     keypair (`*salty_keypair_t`, moved):
 ///         Pointer to a key pair.
 ///     remote (`*salty_remote_t`, moved):
@@ -188,7 +188,7 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 
 /// Initialize a new SaltyRTC client as responder with the Relayed Data task.
 ///
-/// Arguments:
+/// Parameters:
 ///     keypair (`*salty_keypair_t`, moved):
 ///         Pointer to a key pair.
 ///     remote (`*salty_remote_t`, moved):

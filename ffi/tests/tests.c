@@ -71,6 +71,18 @@ int main() {
         i_auth_token
     );
 
+    printf("  Connect initiator\n");
+    salty_client_connect_success_t i_connect_success = salty_client_connect(
+        "http://127.0.0.1:8765",
+        i_client_ret.client,
+        loop
+    );
+    if (i_connect_success != CONNECT_OK) {
+        printf("  ERROR: Connecting was not successful\n");
+    } else {
+        printf("  OK: Connection was successful\n");
+    }
+
     printf("  Freeing public key copy\n");
     free(i_pubkey);
 
