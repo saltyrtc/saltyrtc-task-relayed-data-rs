@@ -18,9 +18,10 @@ use std::ffi::CStr;
 use std::mem;
 use std::ptr;
 use std::rc::Rc;
+use std::slice;
 use std::sync::Mutex;
 
-use libc::{uint8_t, c_char};
+use libc::{uint8_t, uint32_t, c_char};
 use log::LevelFilter;
 use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
@@ -28,7 +29,7 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use saltyrtc_client::{SaltyClient, connect};
 use saltyrtc_client::crypto::KeyPair;
-use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol};
+use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
 use tokio_core::reactor::{Core, Remote};
 
 use constants::*;
@@ -73,6 +74,9 @@ pub enum salty_client_connect_success_t {
 
     /// TLS related error
     CONNECT_TLS_ERROR = 3,
+
+    /// Certificate related error
+    CONNECT_CERTIFICATE_ERROR = 4,
 
     /// Another connection error
     CONNECT_ERROR = 9,
@@ -337,11 +341,19 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 ///         Pointer to a `salty_client_t` instance.
 ///     event_loop (`*salty_event_loop_t`, borrowed):
 ///         The event loop that is also associated with the task.
+///     ca_cert (`*uint8_t` or `NULL`, borrowed):
+///         Optional pointer to bytes of a DER encoded CA certificate.
+///         When no certificate is set, the OS trust chain is used.
+///     ca_cert_len (`uint32_t`, copied):
+///         When the `ca_cert` argument is not `NULL`, then this must be
+///         set to the number of certificate bytes. Otherwise, set it to 0.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_connect(
     url: *const c_char,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
+    ca_cert: *const uint8_t,
+    ca_cert_len: uint32_t,
 ) -> salty_client_connect_success_t {
     // Null pointer checks
     if url.is_null() {
@@ -376,6 +388,20 @@ pub unsafe extern "C" fn salty_client_connect(
     // Get event loop reference
     let core = &mut *(event_loop as *mut Core) as &mut Core;
 
+    // Read CA certificate (if present)
+    let ca_cert: Option<Certificate> = if ca_cert.is_null() {
+        None
+    } else {
+        let bytes: &[u8] = slice::from_raw_parts(ca_cert, ca_cert_len as usize);
+        Some(match Certificate::from_der(bytes) {
+            Ok(cert) => cert,
+            Err(e) => {
+                error!("Could not parse DER encoded CA certificate: {}", e);
+                return salty_client_connect_success_t::CONNECT_CERTIFICATE_ERROR;
+            }
+        })
+    };
+
     // Create TlsConnector
     macro_rules! unwrap_or_tls_error {
         ($obj:expr, $errmsg:expr) => {{
@@ -393,6 +419,10 @@ pub unsafe extern "C" fn salty_client_connect(
         "Could not create TlsConnectorBuilder: {}");
     unwrap_or_tls_error!(tls_builder.supported_protocols(&supported_protocols),
         "Could not set supported TLS protocols: {}");
+    if let Some(cert) = ca_cert {
+        unwrap_or_tls_error!(tls_builder.add_root_certificate(cert),
+            "Could not add CA certificate to TlsConnectorBuilder: {}");
+    }
     let tls_connector = unwrap_or_tls_error!(tls_builder.build(),
         "Could not create TlsConnector: {}");
 

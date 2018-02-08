@@ -75,7 +75,9 @@ int main() {
     salty_client_connect_success_t i_connect_success = salty_client_connect(
         "http://127.0.0.1:8765",
         i_client_ret.client,
-        loop
+        loop,
+        NULL,
+        0
     );
     if (i_connect_success != CONNECT_OK) {
         printf("  ERROR: Connecting was not successful\n");

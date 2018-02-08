@@ -45,6 +45,10 @@ enum salty_client_connect_success_t {
    */
   CONNECT_TLS_ERROR = 3,
   /*
+   * Certificate related error
+   */
+  CONNECT_CERTIFICATE_ERROR = 4,
+  /*
    * Another connection error
    */
   CONNECT_ERROR = 9,
@@ -139,10 +143,18 @@ void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
  *         Pointer to a `salty_client_t` instance.
  *     event_loop (`*salty_event_loop_t`, borrowed):
  *         The event loop that is also associated with the task.
+ *     ca_cert (`*uint8_t` or `NULL`, borrowed):
+ *         Optional pointer to bytes of a DER encoded CA certificate.
+ *         When no certificate is set, the OS trust chain is used.
+ *     ca_cert_len (`uint32_t`, copied):
+ *         When the `ca_cert` argument is not `NULL`, then this must be
+ *         set to the number of certificate bytes. Otherwise, set it to 0.
  */
 salty_client_connect_success_t salty_client_connect(const char *url,
                                                     const salty_client_t *client,
-                                                    const salty_event_loop_t *event_loop);
+                                                    const salty_event_loop_t *event_loop,
+                                                    const uint8_t *ca_cert,
+                                                    uint32_t ca_cert_len);
 
 /*
  * Free an event loop instance.

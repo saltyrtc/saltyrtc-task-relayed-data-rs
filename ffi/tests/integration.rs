@@ -93,6 +93,7 @@ fn c_tests_lint() {
     let output = Command::new("splint")
         .arg("-mustfreefresh")
         .arg("-compdestroy")
+        .arg("-nullpass")
         .arg("tests.c")
         .current_dir(&test_dir)
         .output()
