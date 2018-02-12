@@ -51,6 +51,7 @@ int main() {
         printf("    ERROR: Could not read file\n");
         return EXIT_FAILURE;
     }
+    if (fclose(fd) != 0) printf("Warning: Closing ca cert file descriptor failed");
 
     printf("  Initializing logger (level DEBUG)\n");
     if (!salty_log_init(LEVEL_INFO)) {
@@ -150,6 +151,11 @@ int main() {
     salty_event_loop_free(loop);
 
     printf("END C TESTS\n");
+
+    // Close stdout / stderr to please valgrind
+    if (fclose(stdin) != 0) printf("Warning: Closing stdin failed");
+    if (fclose(stdout) != 0) printf("Warning: Closing stdout failed");
+    if (fclose(stderr) != 0) printf("Warning: Closing stderr failed");
 
     return EXIT_SUCCESS;
 }

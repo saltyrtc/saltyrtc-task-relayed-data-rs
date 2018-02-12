@@ -72,6 +72,7 @@ fn c_tests_no_memory_leaks() {
     let output = Command::new("valgrind")
         .arg("--error-exitcode=23")
         .arg("--leak-check=full")
+        .arg("--track-fds=yes")
         .arg("./tests")
         .current_dir(&build_dir)
         .output()
