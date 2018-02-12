@@ -127,6 +127,9 @@ int main() {
         printf("  OK: Connection was successful\n");
     }
 
+    printf("  Freeing CA cert bytes\n");
+    free(ca_cert);
+
     printf("  Freeing public key copy\n");
     free(i_pubkey);
 
