@@ -10,7 +10,7 @@
 #include "../saltyrtc_task_relayed_data_ffi.h"
 
 int main() {
-    printf("START C TESTS\n");
+    printf("START C TEST\n");
 
     printf("  Reading DER formatted test CA certificate\n");
 
@@ -124,8 +124,10 @@ int main() {
         printf("    ERROR: Connecting was not successful\n");
         return EXIT_FAILURE;
     } else {
-        printf("  OK: Connection was successful\n");
+        printf("    OK: Connection was successful\n");
     }
+
+    printf("CLEANUP\n");
 
     printf("  Freeing CA cert bytes\n");
     free(ca_cert);
@@ -153,7 +155,7 @@ int main() {
     printf("  Freeing event loop\n");
     salty_event_loop_free(loop);
 
-    printf("END C TESTS\n");
+    printf("END C TEST\n");
 
     // Close stdout / stderr to please valgrind
     if (fclose(stdin) != 0) printf("Warning: Closing stdin failed");
