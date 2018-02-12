@@ -31,6 +31,9 @@ int main() {
     if (ca_cert_len < 0) {
         printf("    ERROR: Could not ftell `%s`\n", ca_cert_name);
         return EXIT_FAILURE;
+    } else if (ca_cert_len >= (1L << 32)) {
+        printf("    ERROR: ca_cert_len is larger than 2**32\n");
+        return EXIT_FAILURE;
     }
     if (fseek(fd, 0, SEEK_SET) != 0) {
         printf("    ERROR: Could not fseek `%s`\n", ca_cert_name);
@@ -38,12 +41,12 @@ int main() {
     }
 
     // Prepare buffer
-    uint8_t *ca_cert = malloc(ca_cert_len);
+    uint8_t *ca_cert = malloc((size_t)ca_cert_len);
     if (ca_cert == NULL) {
         printf("    ERROR: Could not malloc %ld bytes\n", ca_cert_len);
         return EXIT_FAILURE;
     }
-    size_t read_bytes = fread(ca_cert, ca_cert_len, 1, fd);
+    size_t read_bytes = fread(ca_cert, (size_t)ca_cert_len, 1, fd);
     if (read_bytes != 1) {
         printf("    ERROR: Could not read file\n");
         return EXIT_FAILURE;
@@ -114,7 +117,7 @@ int main() {
         i_client_ret.client,
         loop,
         ca_cert,
-        ca_cert_len
+        (uint32_t)ca_cert_len
     );
     if (i_connect_success != CONNECT_OK) {
         printf("    ERROR: Connecting was not successful\n");

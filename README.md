@@ -10,12 +10,15 @@
 
 ### Unit Tests
 
+Prerequisites:
+
+* You need to install `valgrind` and `splint`
+* The integration tests currently require a `saltyrtc.der` test CA
+  certificate in the root directory of the repository.
+
 To run the testsuite:
 
     cargo test
-
-Note: The integration tests currently require a `saltyrtc.der` test CA
-certificate in the root directory of the repository.
 
 ### Linting
 
