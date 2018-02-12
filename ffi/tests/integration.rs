@@ -65,7 +65,7 @@ fn c_tests_run() {
     }
 }
 
-#[test]
+//#[test] Disabled for the moment, see https://github.com/sfackler/rust-native-tls/issues/74
 fn c_tests_no_memory_leaks() {
     let (_guard, build_dir) = build_tests();
 
