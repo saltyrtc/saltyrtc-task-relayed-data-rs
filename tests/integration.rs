@@ -109,7 +109,6 @@ fn integration_test() {
 
     // The WebSocket public key
     let pubkey = initiator_keypair.public_key().clone();
-    let path = initiator_keypair.public_key_hex();
 
     // Initialize initiator and responder
     let (initiator, rx_initiator) = setup_initiator(initiator_keypair, core.remote());
@@ -121,13 +120,15 @@ fn integration_test() {
 
     // Futures to connect to server
     let connect_initiator = saltyrtc_client::connect(
-        &format!("wss://localhost:8765/{}", path),
+        "localhost",
+        8765,
         Some(tls_connector.clone()),
         &core.handle(),
         initiator.clone(),
     ).unwrap().and_then(|client| saltyrtc_client::do_handshake(client, initiator.clone()));
     let connect_responder = saltyrtc_client::connect(
-        &format!("wss://localhost:8765/{}", path),
+        "localhost",
+        8765,
         Some(tls_connector.clone()),
         &core.handle(),
         responder.clone(),

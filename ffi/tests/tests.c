@@ -114,7 +114,8 @@ int main() {
 
     printf("  Connect initiator\n");
     salty_client_connect_success_t i_connect_success = salty_client_connect(
-        "wss://localhost:8765",
+        "localhost",
+        8765,
         i_client_ret.client,
         loop,
         ca_cert,

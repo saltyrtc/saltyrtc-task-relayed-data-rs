@@ -37,9 +37,9 @@ enum salty_client_connect_success_t {
    */
   CONNECT_NULL_ARGUMENT = 1,
   /*
-   * The URL is invalid (probably not UTF-8)
+   * The hostname is invalid (probably not UTF-8)
    */
-  CONNECT_INVALID_URL = 2,
+  CONNECT_INVALID_HOST = 2,
   /*
    * TLS related error
    */
@@ -137,8 +137,10 @@ void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
  * This is a blocking call. It will end once the connection has been terminated.
  *
  * Parameters:
- *     url (`*c_char`, null terminated, borrowed):
- *         Char pointer (null terminated UTF-8 encoded C string)
+ *     host (`*c_char`, null terminated, borrowed):
+ *         Null terminated UTF-8 encoded C string containing the SaltyRTC server hostname.
+ *     port (`*uint16_t`, copied):
+ *         SaltyRTC server port.
  *     client (`*salty_client_t`, borrowed):
  *         Pointer to a `salty_client_t` instance.
  *     event_loop (`*salty_event_loop_t`, borrowed):
@@ -150,7 +152,8 @@ void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
  *         When the `ca_cert` argument is not `NULL`, then this must be
  *         set to the number of certificate bytes. Otherwise, set it to 0.
  */
-salty_client_connect_success_t salty_client_connect(const char *url,
+salty_client_connect_success_t salty_client_connect(const char *host,
+                                                    uint16_t port,
                                                     const salty_client_t *client,
                                                     const salty_event_loop_t *event_loop,
                                                     const uint8_t *ca_cert,

@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::slice;
 use std::sync::Mutex;
 
-use libc::{uint8_t, uint32_t, c_char};
+use libc::{uint8_t, uint16_t, uint32_t, c_char};
 use log::LevelFilter;
 use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
@@ -69,8 +69,8 @@ pub enum salty_client_connect_success_t {
     /// One of the arguments was a `null` pointer.
     CONNECT_NULL_ARGUMENT = 1,
 
-    /// The URL is invalid (probably not UTF-8)
-    CONNECT_INVALID_URL = 2,
+    /// The hostname is invalid (probably not UTF-8)
+    CONNECT_INVALID_HOST = 2,
 
     /// TLS related error
     CONNECT_TLS_ERROR = 3,
@@ -335,8 +335,10 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 /// This is a blocking call. It will end once the connection has been terminated.
 ///
 /// Parameters:
-///     url (`*c_char`, null terminated, borrowed):
-///         Char pointer (null terminated UTF-8 encoded C string)
+///     host (`*c_char`, null terminated, borrowed):
+///         Null terminated UTF-8 encoded C string containing the SaltyRTC server hostname.
+///     port (`*uint16_t`, copied):
+///         SaltyRTC server port.
 ///     client (`*salty_client_t`, borrowed):
 ///         Pointer to a `salty_client_t` instance.
 ///     event_loop (`*salty_event_loop_t`, borrowed):
@@ -349,15 +351,16 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 ///         set to the number of certificate bytes. Otherwise, set it to 0.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_connect(
-    url: *const c_char,
+    host: *const c_char,
+    port: uint16_t,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
     ca_cert: *const uint8_t,
     ca_cert_len: uint32_t,
 ) -> salty_client_connect_success_t {
     // Null pointer checks
-    if url.is_null() {
-        error!("URL pointer is null");
+    if host.is_null() {
+        error!("Hostname pointer is null");
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
     if client.is_null() {
@@ -369,12 +372,12 @@ pub unsafe extern "C" fn salty_client_connect(
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
 
-    // Get URL string
-    let url = match CStr::from_ptr(url).to_str() {
-        Ok(url) => url,
+    // Get host string
+    let hostname = match CStr::from_ptr(host).to_str() {
+        Ok(host) => host,
         Err(_) => {
-            error!("url argument is not valid UTF-8");
-            return salty_client_connect_success_t::CONNECT_INVALID_URL;
+            error!("host argument is not valid UTF-8");
+            return salty_client_connect_success_t::CONNECT_INVALID_HOST;
         },
     };
 
@@ -427,7 +430,7 @@ pub unsafe extern "C" fn salty_client_connect(
         "Could not create TlsConnector: {}");
 
     // Create connect future
-    let future = match connect(url, Some(tls_connector), &core.handle(), client_rc_clone) {
+    let future = match connect(hostname, port, Some(tls_connector), &core.handle(), client_rc_clone) {
         Ok(future) => future,
         Err(e) => {
             error!("Could not create connect future: {}", e);
