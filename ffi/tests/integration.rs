@@ -65,7 +65,9 @@ fn c_tests_run() {
     }
 }
 
-#[test]
+// #[test] Disabled for now due to false errors, see
+// https://bugs.kde.org/show_bug.cgi?id=381289 and
+// https://bugzilla.redhat.com/show_bug.cgi?id=1462258
 fn c_tests_no_memory_leaks() {
     let (_guard, build_dir) = build_tests();
 

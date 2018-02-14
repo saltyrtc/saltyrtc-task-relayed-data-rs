@@ -20,6 +20,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::slice;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use libc::{uint8_t, uint16_t, uint32_t, c_char};
 use log::LevelFilter;
@@ -27,8 +28,9 @@ use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
-use saltyrtc_client::{SaltyClient, connect};
+use saltyrtc_client::{SaltyClient, connect, do_handshake};
 use saltyrtc_client::crypto::KeyPair;
+use saltyrtc_client::dep::futures::Future;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
 use tokio_core::reactor::{Core, Remote};
 
@@ -330,7 +332,7 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 
 // *** CONNECTION *** //
 
-/// Connect to the specified SaltyRTC server.
+/// Connect to the specified SaltyRTC server and do the server and peer handshake.
 ///
 /// This is a blocking call. It will end once the connection has been terminated.
 ///
@@ -343,6 +345,8 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 ///         Pointer to a `salty_client_t` instance.
 ///     event_loop (`*salty_event_loop_t`, borrowed):
 ///         The event loop that is also associated with the task.
+///     timeout_s (`uint16_t`, copied):
+///         Connection timeout in seconds. Set value to `0` for no timeout.
 ///     ca_cert (`*uint8_t` or `NULL`, borrowed):
 ///         Optional pointer to bytes of a DER encoded CA certificate.
 ///         When no certificate is set, the OS trust chain is used.
@@ -355,6 +359,7 @@ pub unsafe extern "C" fn salty_client_connect(
     port: uint16_t,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
+    timeout_s: uint16_t,
     ca_cert: *const uint8_t,
     ca_cert_len: uint32_t,
 ) -> salty_client_connect_success_t {
@@ -385,7 +390,8 @@ pub unsafe extern "C" fn salty_client_connect(
     let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
 
     // Clone RC so that the client instance can be reused
-    let client_rc_clone = client_rc.clone();
+    let client_rc_clone1 = client_rc.clone();
+    let client_rc_clone2 = client_rc.clone();
     mem::forget(client_rc);
 
     // Get event loop reference
@@ -430,13 +436,20 @@ pub unsafe extern "C" fn salty_client_connect(
         "Could not create TlsConnector: {}");
 
     // Create connect future
-    let future = match connect(hostname, port, Some(tls_connector), &core.handle(), client_rc_clone) {
+    let connect_future = match connect(hostname, port, Some(tls_connector), &core.handle(), client_rc_clone1) {
         Ok(future) => future,
         Err(e) => {
             error!("Could not create connect future: {}", e);
             return salty_client_connect_success_t::CONNECT_ERROR;
         },
     };
+
+    // After connecting to server, do handshake
+    let timeout = match timeout_s {
+        0 => None,
+        seconds => Some(Duration::from_secs(seconds as u64)),
+    };
+    let future = connect_future.and_then(|client| do_handshake(client, client_rc_clone2, timeout));
 
     // Run future to completion
     match core.run(future) {
