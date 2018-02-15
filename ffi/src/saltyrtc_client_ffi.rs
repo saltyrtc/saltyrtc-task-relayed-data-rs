@@ -30,7 +30,9 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use saltyrtc_client::{self, SaltyClient};
 use saltyrtc_client::crypto::KeyPair;
-use saltyrtc_client::dep::futures::Future;
+use saltyrtc_client::dep::futures::{Future, Stream};
+use saltyrtc_client::dep::futures::future::Either;
+use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
 use tokio_core::reactor::{Core, Remote};
 
@@ -60,14 +62,20 @@ pub enum salty_remote_t {}
 pub enum salty_client_t {}
 
 /// The channel for receiving incoming messages.
+///
+/// On the Rust side, this is an `UnboundedReceiver<Message>`.
 #[no_mangle]
 pub enum salty_channel_receiver_rx_t {}
 
 /// The channel for sending outgoing messages (sending end).
+///
+/// On the Rust side, this is an `UnboundedSender<Vec<u8>>`.
 #[no_mangle]
 pub enum salty_channel_sender_tx_t {}
 
 /// The channel for sending outgoing messages (receiving end).
+///
+/// On the Rust side, this is an `UnboundedReceiver<Vec<u8>>`.
 #[no_mangle]
 pub enum salty_channel_sender_rx_t {}
 
@@ -394,6 +402,10 @@ pub unsafe extern "C" fn salty_client_connect(
         error!("Event loop pointer is null");
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
+    if sender_rx.is_null() {
+        warn!("Sender RX channel pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
 
     // Get host string
     let hostname = match CStr::from_ptr(host).to_str() {
@@ -415,6 +427,9 @@ pub unsafe extern "C" fn salty_client_connect(
 
     // Get event loop reference
     let core = &mut *(event_loop as *mut Core) as &mut Core;
+
+    // Get channel sender instance
+    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<Vec<u8>>);
 
     // Read CA certificate (if present)
     let ca_cert_opt: Option<Certificate> = if ca_cert.is_null() {
@@ -490,8 +505,8 @@ pub unsafe extern "C" fn salty_client_connect(
         },
     };
 
-    // Create loop future
-    let (task, task_loop_future) = match saltyrtc_client::task_loop(ws_client, client_rc_clone3) {
+    // Create task loop future
+    let (task, task_loop) = match saltyrtc_client::task_loop(ws_client, client_rc_clone3) {
         Ok(val) => val,
         Err(e) => {
             error!("Could not start task loop: {}", e);
@@ -499,14 +514,30 @@ pub unsafe extern "C" fn salty_client_connect(
         },
     };
 
+    // Create send loop future
+    let send_loop = (*sender_rx_box)
+        .for_each(|bytes| {
+            warn!("Sending bytes: {:?}", bytes);
+            Ok(())
+        });
+
     // Run task loop future to completion
-    match core.run(task_loop_future) {
+    match core.run(task_loop.select2(send_loop)) {
+        // Everything OK
         Ok(_) => {
             info!("Connection ended");
             salty_client_connect_success_t::CONNECT_OK
         },
-        Err(e) => {
+
+        // Task loop failed
+        Err(Either::A((e, _))) => {
             error!("Task loop error: {}", e);
+            salty_client_connect_success_t::CONNECT_ERROR
+        },
+
+        // Send loop failed
+        Err(Either::B(_)) => {
+            error!("Send loop error");
             salty_client_connect_success_t::CONNECT_ERROR
         },
     }

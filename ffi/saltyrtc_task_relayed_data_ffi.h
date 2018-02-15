@@ -86,16 +86,22 @@ typedef uint8_t salty_relayed_data_success_t;
 
 /*
  * The channel for receiving incoming messages.
+ *
+ * On the Rust side, this is an `UnboundedReceiver<Message>`.
  */
 typedef struct salty_channel_receiver_rx_t salty_channel_receiver_rx_t;
 
 /*
  * The channel for sending outgoing messages (receiving end).
+ *
+ * On the Rust side, this is an `UnboundedReceiver<Vec<u8>>`.
  */
 typedef struct salty_channel_sender_rx_t salty_channel_sender_rx_t;
 
 /*
  * The channel for sending outgoing messages (sending end).
+ *
+ * On the Rust side, this is an `UnboundedSender<Vec<u8>>`.
  */
 typedef struct salty_channel_sender_tx_t salty_channel_sender_tx_t;
 
