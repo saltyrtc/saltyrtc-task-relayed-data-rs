@@ -133,6 +133,7 @@ unsafe fn create_client_builder(
     let remote = Box::from_raw(remote as *mut Remote);
 
     // Create communication channels
+    // TODO: The sender should not be created here, it should be extracted from the task!
     let (receiver_tx, receiver_rx) = mpsc::unbounded();
     let (sender_tx, sender_rx) = mpsc::unbounded();
 

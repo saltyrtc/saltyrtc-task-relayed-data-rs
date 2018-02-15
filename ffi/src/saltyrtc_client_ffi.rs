@@ -81,7 +81,7 @@ pub enum salty_channel_sender_rx_t {}
 
 /// Result type with all potential error codes.
 ///
-/// If no error happened, the value should be `OK` (0).
+/// If no error happened, the value should be `CONNECT_OK` (0).
 #[repr(u8)]
 #[no_mangle]
 pub enum salty_client_connect_success_t {
@@ -102,6 +102,22 @@ pub enum salty_client_connect_success_t {
 
     /// Another connection error
     CONNECT_ERROR = 9,
+}
+
+/// Result type with all potential error codes.
+///
+/// If no error happened, the value should be `SEND_OK` (0).
+#[repr(u8)]
+#[no_mangle]
+pub enum salty_client_send_success_t {
+    /// No error.
+    SEND_OK = 0,
+
+    /// One of the arguments was a `null` pointer.
+    SEND_NULL_ARGUMENT = 1,
+
+    /// Sending failed
+    SEND_ERROR = 9,
 }
 
 
@@ -539,6 +555,43 @@ pub unsafe extern "C" fn salty_client_connect(
         Err(Either::B(_)) => {
             error!("Send loop error");
             salty_client_connect_success_t::CONNECT_ERROR
+        },
+    }
+}
+
+/// Send a message through the outgoing channel.
+///
+/// Parameters:
+///     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
+///         The sending end of the channel for outgoing messages.
+///     msg (`*uint8_t`, borrowed):
+///         Pointer to the message bytes.
+///     msg_len (`uint32_t`, copied):
+///         Length of the message in bytes.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_send_bytes(
+    sender_tx: *const salty_channel_sender_tx_t,
+    msg: *const uint8_t,
+    msg_len: uint32_t,
+) -> salty_client_send_success_t {
+    // Null pointer checks
+    if msg.is_null() {
+        error!("Message pointer is null");
+        return salty_client_send_success_t::SEND_NULL_ARGUMENT;
+    }
+
+    // Get pointer to UnboundedSender
+    let sender = &*(sender_tx as *const mpsc::UnboundedSender<Vec<u8>>) as &mpsc::UnboundedSender<Vec<u8>>;
+
+    // Copy message bytes into Vec
+    let msg_slice: &[u8] = slice::from_raw_parts(msg, msg_len as usize);
+    let msg_vec: Vec<u8> = msg_slice.into();
+
+    match sender.unbounded_send(msg_vec) {
+        Ok(_) => salty_client_send_success_t::SEND_OK,
+        Err(e) => {
+            error!("Sending message failed: {}", e);
+            salty_client_send_success_t::SEND_ERROR
         },
     }
 }

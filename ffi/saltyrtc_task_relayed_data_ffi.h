@@ -25,7 +25,7 @@
 /*
  * Result type with all potential error codes.
  *
- * If no error happened, the value should be `OK` (0).
+ * If no error happened, the value should be `CONNECT_OK` (0).
  */
 enum salty_client_connect_success_t {
   /*
@@ -54,6 +54,27 @@ enum salty_client_connect_success_t {
   CONNECT_ERROR = 9,
 };
 typedef uint8_t salty_client_connect_success_t;
+
+/*
+ * Result type with all potential error codes.
+ *
+ * If no error happened, the value should be `SEND_OK` (0).
+ */
+enum salty_client_send_success_t {
+  /*
+   * No error.
+   */
+  SEND_OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
+  SEND_NULL_ARGUMENT = 1,
+  /*
+   * Sending failed
+   */
+  SEND_ERROR = 9,
+};
+typedef uint8_t salty_client_send_success_t;
 
 /*
  * Result type with all potential error codes.
@@ -195,6 +216,21 @@ salty_client_connect_success_t salty_client_connect(const char *host,
                                                     uint16_t timeout_s,
                                                     const uint8_t *ca_cert,
                                                     uint32_t ca_cert_len);
+
+/*
+ * Send a message through the outgoing channel.
+ *
+ * Parameters:
+ *     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
+ *         The sending end of the channel for outgoing messages.
+ *     msg (`*uint8_t`, borrowed):
+ *         Pointer to the message bytes.
+ *     msg_len (`uint32_t`, copied):
+ *         Length of the message in bytes.
+ */
+salty_client_send_success_t salty_client_send_bytes(const salty_channel_sender_tx_t *sender_tx,
+                                                    const uint8_t *msg,
+                                                    uint32_t msg_len);
 
 /*
  * Free an event loop instance.
