@@ -119,20 +119,25 @@ fn integration_test() {
     let responder = Rc::new(RefCell::new(responder));
 
     // Futures to connect to server
+    let timeout = Some(Duration::from_secs(2));
     let connect_initiator = saltyrtc_client::connect(
-        "localhost",
-        8765,
-        Some(tls_connector.clone()),
-        &core.handle(),
-        initiator.clone(),
-    ).unwrap().and_then(|client| saltyrtc_client::do_handshake(client, initiator.clone()));
+            "localhost",
+            8765,
+            Some(tls_connector.clone()),
+            &core.handle(),
+            initiator.clone(),
+        )
+        .unwrap()
+        .and_then(|client| saltyrtc_client::do_handshake(client, initiator.clone(), timeout));
     let connect_responder = saltyrtc_client::connect(
-        "localhost",
-        8765,
-        Some(tls_connector.clone()),
-        &core.handle(),
-        responder.clone(),
-    ).unwrap().and_then(|client| saltyrtc_client::do_handshake(client, responder.clone()));
+            "localhost",
+            8765,
+            Some(tls_connector.clone()),
+            &core.handle(),
+            responder.clone(),
+        )
+        .unwrap()
+        .and_then(|client| saltyrtc_client::do_handshake(client, responder.clone(), timeout));
 
     // Connect both clients
     let (client_initiator, client_responder): (WsClient, WsClient) = core.run(
