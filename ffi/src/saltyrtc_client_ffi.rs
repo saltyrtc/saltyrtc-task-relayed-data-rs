@@ -28,7 +28,7 @@ use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
-use saltyrtc_client::{SaltyClient, connect, do_handshake};
+use saltyrtc_client::{self, SaltyClient};
 use saltyrtc_client::crypto::KeyPair;
 use saltyrtc_client::dep::futures::Future;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
@@ -332,9 +332,11 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 
 // *** CONNECTION *** //
 
-/// Connect to the specified SaltyRTC server and do the server and peer handshake.
+/// Connect to the specified SaltyRTC server, do the server and peer handshake
+/// and run the task loop.
 ///
 /// This is a blocking call. It will end once the connection has been terminated.
+/// You should probably run this in a separate thread.
 ///
 /// Parameters:
 ///     host (`*c_char`, null terminated, borrowed):
@@ -346,7 +348,7 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 ///     event_loop (`*salty_event_loop_t`, borrowed):
 ///         The event loop that is also associated with the task.
 ///     timeout_s (`uint16_t`, copied):
-///         Connection timeout in seconds. Set value to `0` for no timeout.
+///         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
 ///     ca_cert (`*uint8_t` or `NULL`, borrowed):
 ///         Optional pointer to bytes of a DER encoded CA certificate.
 ///         When no certificate is set, the OS trust chain is used.
@@ -392,6 +394,7 @@ pub unsafe extern "C" fn salty_client_connect(
     // Clone RC so that the client instance can be reused
     let client_rc_clone1 = client_rc.clone();
     let client_rc_clone2 = client_rc.clone();
+    let client_rc_clone3 = client_rc.clone();
     mem::forget(client_rc);
 
     // Get event loop reference
@@ -436,7 +439,13 @@ pub unsafe extern "C" fn salty_client_connect(
         "Could not create TlsConnector: {}");
 
     // Create connect future
-    let connect_future = match connect(hostname, port, Some(tls_connector), &core.handle(), client_rc_clone1) {
+    let connect_future = match saltyrtc_client::connect(
+        hostname,
+        port,
+        Some(tls_connector),
+        &core.handle(),
+        client_rc_clone1,
+    ) {
         Ok(future) => future,
         Err(e) => {
             error!("Could not create connect future: {}", e);
@@ -444,21 +453,44 @@ pub unsafe extern "C" fn salty_client_connect(
         },
     };
 
+    // Create handshake future
     // After connecting to server, do handshake
     let timeout = match timeout_s {
         0 => None,
         seconds => Some(Duration::from_secs(seconds as u64)),
     };
-    let future = connect_future.and_then(|client| do_handshake(client, client_rc_clone2, timeout));
+    let handshake_future = connect_future
+        .and_then(|ws_client| saltyrtc_client::do_handshake(ws_client, client_rc_clone2, timeout));
 
-    // Run future to completion
-    match core.run(future) {
-        Ok(_) => {
-            info!("Connection has ended");
-            salty_client_connect_success_t::CONNECT_OK
+    // Run handshake future to completion
+    let ws_client = match core.run(handshake_future) {
+        Ok(ws_client) => {
+            info!("Handshake done");
+            ws_client
         },
         Err(e) => {
             error!("Connection error: {}", e);
+            return salty_client_connect_success_t::CONNECT_ERROR;
+        },
+    };
+
+    // Create loop future
+    let (task, task_loop_future) = match saltyrtc_client::task_loop(ws_client, client_rc_clone3) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("Could not start task loop: {}", e);
+            return salty_client_connect_success_t::CONNECT_ERROR;
+        },
+    };
+
+    // Run task loop future to completion
+    match core.run(task_loop_future) {
+        Ok(_) => {
+            info!("Connection ended");
+            salty_client_connect_success_t::CONNECT_OK
+        },
+        Err(e) => {
+            error!("Task loop error: {}", e);
             salty_client_connect_success_t::CONNECT_ERROR
         },
     }

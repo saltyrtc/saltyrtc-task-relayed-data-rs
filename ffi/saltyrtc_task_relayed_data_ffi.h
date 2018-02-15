@@ -132,9 +132,11 @@ typedef struct {
 void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
 
 /*
- * Connect to the specified SaltyRTC server and do the server and peer handshake.
+ * Connect to the specified SaltyRTC server, do the server and peer handshake
+ * and run the task loop.
  *
  * This is a blocking call. It will end once the connection has been terminated.
+ * You should probably run this in a separate thread.
  *
  * Parameters:
  *     host (`*c_char`, null terminated, borrowed):
@@ -146,7 +148,7 @@ void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
  *     event_loop (`*salty_event_loop_t`, borrowed):
  *         The event loop that is also associated with the task.
  *     timeout_s (`uint16_t`, copied):
- *         Connection timeout in seconds. Set value to `0` for no timeout.
+ *         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
  *     ca_cert (`*uint8_t` or `NULL`, borrowed):
  *         Optional pointer to bytes of a DER encoded CA certificate.
  *         When no certificate is set, the OS trust chain is used.
