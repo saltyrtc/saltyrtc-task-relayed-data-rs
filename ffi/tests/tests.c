@@ -246,7 +246,7 @@ int main() {
     pthread_t i_thread;
     struct thread_data i_data = {
         .interval_seconds = 0,
-        .timeout_seconds = 1,
+        .timeout_seconds = 5,
         .keypair = i_keypair,
         .initiator_pubkey = NULL,
         .ca_cert = ca_cert,
@@ -258,7 +258,7 @@ int main() {
     pthread_t r_thread;
     struct thread_data r_data = {
         .interval_seconds = 0,
-        .timeout_seconds = 1,
+        .timeout_seconds = 5,
         .keypair = r_keypair,
         .initiator_pubkey = i_pubkey,
         .ca_cert = ca_cert,
