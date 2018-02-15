@@ -78,6 +78,8 @@ void *connect_initiator(void *threadarg) {
         client_ret.client,
         // Event loop
         loop,
+        // Sender channel, receiving end
+        client_ret.salty_channel_sender_rx_t,
         // Timeout seconds
         data->timeout_seconds,
         // CA certificate
@@ -149,6 +151,8 @@ void *connect_responder(void *threadarg) {
         client_ret.client,
         // Event loop
         loop,
+        // Sender channel, receiving end
+        client_ret.salty_channel_sender_rx_t,
         // Timeout seconds
         data->timeout_seconds,
         // CA certificate

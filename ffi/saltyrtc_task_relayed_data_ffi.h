@@ -149,7 +149,7 @@ void salty_channel_receiver_rx_free(const salty_channel_receiver_rx_t *ptr);
 void salty_channel_sender_rx_free(const salty_channel_sender_rx_t *ptr);
 
 /*
- * Free a `salty_channel_sender_rx_t` instance.
+ * Free a `salty_channel_sender_tx_t` instance.
  */
 void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
 
@@ -169,6 +169,9 @@ void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
  *         Pointer to a `salty_client_t` instance.
  *     event_loop (`*salty_event_loop_t`, borrowed):
  *         The event loop that is also associated with the task.
+ *     sender_rx (`*salty_channel_sender_rx_t`, moved):
+ *         The receiving end of the channel for outgoing messages.
+ *         This object is returned when creating a client instance.
  *     timeout_s (`uint16_t`, copied):
  *         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
  *     ca_cert (`*uint8_t` or `NULL`, borrowed):
@@ -182,6 +185,7 @@ salty_client_connect_success_t salty_client_connect(const char *host,
                                                     uint16_t port,
                                                     const salty_client_t *client,
                                                     const salty_event_loop_t *event_loop,
+                                                    const salty_channel_sender_rx_t *sender_rx,
                                                     uint16_t timeout_s,
                                                     const uint8_t *ca_cert,
                                                     uint32_t ca_cert_len);

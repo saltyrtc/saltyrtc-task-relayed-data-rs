@@ -59,6 +59,18 @@ pub enum salty_remote_t {}
 #[no_mangle]
 pub enum salty_client_t {}
 
+/// The channel for receiving incoming messages.
+#[no_mangle]
+pub enum salty_channel_receiver_rx_t {}
+
+/// The channel for sending outgoing messages (sending end).
+#[no_mangle]
+pub enum salty_channel_sender_tx_t {}
+
+/// The channel for sending outgoing messages (receiving end).
+#[no_mangle]
+pub enum salty_channel_sender_rx_t {}
+
 /// Result type with all potential error codes.
 ///
 /// If no error happened, the value should be `OK` (0).
@@ -347,6 +359,9 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
 ///         Pointer to a `salty_client_t` instance.
 ///     event_loop (`*salty_event_loop_t`, borrowed):
 ///         The event loop that is also associated with the task.
+///     sender_rx (`*salty_channel_sender_rx_t`, moved):
+///         The receiving end of the channel for outgoing messages.
+///         This object is returned when creating a client instance.
 ///     timeout_s (`uint16_t`, copied):
 ///         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
 ///     ca_cert (`*uint8_t` or `NULL`, borrowed):
@@ -361,6 +376,7 @@ pub unsafe extern "C" fn salty_client_connect(
     port: uint16_t,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
+    sender_rx: *const salty_channel_sender_rx_t,
     timeout_s: uint16_t,
     ca_cert: *const uint8_t,
     ca_cert_len: uint32_t,

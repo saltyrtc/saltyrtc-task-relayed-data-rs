@@ -42,7 +42,10 @@ use saltyrtc_client::{SaltyClient, SaltyClientBuilder};
 use saltyrtc_client::crypto::{KeyPair, PublicKey, AuthToken};
 use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::tasks::BoxedTask;
-pub use saltyrtc_client_ffi::{salty_client_t, salty_keypair_t, salty_remote_t};
+pub use saltyrtc_client_ffi::{
+    salty_client_t, salty_keypair_t, salty_remote_t,
+    salty_channel_receiver_rx_t, salty_channel_sender_tx_t, salty_channel_sender_rx_t,
+};
 use saltyrtc_task_relayed_data::{RelayedDataTask, Message};
 use tokio_core::reactor::Remote;
 
@@ -50,18 +53,6 @@ pub use constants::*;
 
 
 // *** TYPES *** //
-
-/// The channel for receiving incoming messages.
-#[no_mangle]
-pub enum salty_channel_receiver_rx_t {}
-
-/// The channel for sending outgoing messages (sending end).
-#[no_mangle]
-pub enum salty_channel_sender_tx_t {}
-
-/// The channel for sending outgoing messages (receiving end).
-#[no_mangle]
-pub enum salty_channel_sender_rx_t {}
 
 /// Result type with all potential error codes.
 ///
