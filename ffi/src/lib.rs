@@ -102,12 +102,19 @@ fn make_error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client
     }
 }
 
+struct ClientBuilderRet {
+    builder: SaltyClientBuilder,
+    receiver_rx: mpsc::UnboundedReceiver<Message>,
+    sender_tx: mpsc::UnboundedSender<Vec<u8>>,
+    sender_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+}
+
 /// Helper function to parse arguments and to create a new `SaltyClientBuilder`.
 unsafe fn create_client_builder(
     keypair: *const salty_keypair_t,
     remote: *const salty_remote_t,
     ping_interval_seconds: uint32_t,
-) -> Result<(SaltyClientBuilder, mpsc::UnboundedReceiver<Message>), salty_relayed_data_success_t> {
+) -> Result<ClientBuilderRet, salty_relayed_data_success_t> {
     // Null checks
     if keypair.is_null() {
         error!("Keypair pointer is null");
@@ -123,10 +130,11 @@ unsafe fn create_client_builder(
     let remote = Box::from_raw(remote as *mut Remote);
 
     // Create communication channels
-    let (tx, rx) = mpsc::unbounded();
+    let (receiver_tx, receiver_rx) = mpsc::unbounded();
+    let (sender_tx, sender_rx) = mpsc::unbounded();
 
     // Instantiate task
-    let task = RelayedDataTask::new(*remote, tx);
+    let task = RelayedDataTask::new(*remote, receiver_tx);
 
     // Determine ping interval
     let interval = match ping_interval_seconds {
@@ -139,7 +147,12 @@ unsafe fn create_client_builder(
         .add_task(Box::new(task) as BoxedTask)
         .with_ping_interval(interval);
 
-    Ok((builder, rx))
+    Ok(ClientBuilderRet {
+        builder,
+        receiver_rx,
+        sender_tx,
+        sender_rx,
+    })
 }
 
 
@@ -164,13 +177,13 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     ping_interval_seconds: uint32_t,
 ) -> salty_relayed_data_client_ret_t {
     // Parse arguments and create SaltyRTC builder
-    let (builder, rx) = match create_client_builder(keypair, remote, ping_interval_seconds) {
-        Ok(tuple) => tuple,
+    let ret = match create_client_builder(keypair, remote, ping_interval_seconds) {
+        Ok(val) => val,
         Err(reason) => return make_error(reason),
     };
 
     // Create client instance
-    let client_res = builder.initiator();
+    let client_res = ret.builder.initiator();
     let client = match client_res {
         Ok(client) => client,
         Err(e) => {
@@ -182,7 +195,7 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
         client: Rc::into_raw(Rc::new(RefCell::new(client))) as *mut salty_client_t,
-        rx_chan: Box::into_raw(Box::new(rx)) as *mut salty_channel_receiver_t,
+        rx_chan: Box::into_raw(Box::new(ret.receiver_rx)) as *mut salty_channel_receiver_t,
     }
 }
 
@@ -212,8 +225,8 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
     auth_token: *const uint8_t,
 ) -> salty_relayed_data_client_ret_t {
     // Parse arguments and create SaltyRTC builder
-    let (builder, rx) = match create_client_builder(keypair, remote, ping_interval_seconds) {
-        Ok(tuple) => tuple,
+    let ret = match create_client_builder(keypair, remote, ping_interval_seconds) {
+        Ok(val) => val,
         Err(reason) => return make_error(reason),
     };
 
@@ -263,7 +276,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
     };
 
     // Create client instance
-    let client_res = builder.responder(pubkey, auth_token_opt);
+    let client_res = ret.builder.responder(pubkey, auth_token_opt);
     let client = match client_res {
         Ok(client) => client,
         Err(e) => {
@@ -275,7 +288,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
         client: Rc::into_raw(Rc::new(RefCell::new(client))) as *const salty_client_t,
-        rx_chan: Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_t,
+        rx_chan: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_t,
     }
 }
 
