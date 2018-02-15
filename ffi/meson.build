@@ -1,9 +1,21 @@
 # Project
-project(
-  'saltyrtc-task-relayed-data-ffi-tests',
-  'c',
-  default_options : ['c_std=c99']
+project('saltyrtc-task-relayed-data-ffi-tests', 'c', default_options : ['c_std=c99'])
+
+# Configure compiler
+add_global_arguments(
+  '-Wall',
+  '-Wextra',
+  '-Wpedantic',
+  '-Werror',
+  language: 'c'
 )
+if meson.get_compiler('c').get_id() == 'clang'
+  add_global_arguments(
+    '-Weverything',
+    '-Wno-padded',
+    language: 'c'
+  )
+endif
 
 # Dependency: SaltyRTC
 compiler = meson.get_compiler('c')

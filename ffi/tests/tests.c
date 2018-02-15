@@ -11,7 +11,13 @@
 
 #include "../saltyrtc_task_relayed_data_ffi.h"
 
-sem_t auth_token_set;
+
+// Function prototypes
+void *connect_initiator(void *threadarg);
+void *connect_responder(void *threadarg);
+
+// Statics
+static sem_t auth_token_set;
 static uint8_t *auth_token = NULL;
 
 /**
@@ -23,7 +29,7 @@ struct thread_data {
     const salty_keypair_t *keypair;
     const uint8_t *initiator_pubkey;
     const uint8_t *ca_cert;
-    size_t ca_cert_len;
+    long ca_cert_len;
 };
 
 /**

@@ -34,10 +34,12 @@ Dependencies:
 - meson
 - ninja
 - valgrind
-- splint
 
 If you want to build the tests manually, in the root directory, type:
 
-    $ CFLAGS=-Werror meson build
+    $ CC=clang meson build
     $ cd build
+    $ ln -s path/to/saltyrtc.der
     $ ninja
+
+(Note: You can also build the tests with gcc, but then you'll get less diagnostics.)
