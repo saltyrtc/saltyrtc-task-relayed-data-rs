@@ -87,7 +87,17 @@ typedef uint8_t salty_relayed_data_success_t;
 /*
  * The channel for receiving incoming messages.
  */
-typedef struct salty_channel_receiver_t salty_channel_receiver_t;
+typedef struct salty_channel_receiver_rx_t salty_channel_receiver_rx_t;
+
+/*
+ * The channel for sending outgoing messages (receiving end).
+ */
+typedef struct salty_channel_sender_rx_t salty_channel_sender_rx_t;
+
+/*
+ * The channel for sending outgoing messages (sending end).
+ */
+typedef struct salty_channel_sender_tx_t salty_channel_sender_tx_t;
 
 /*
  * A SaltyRTC client instance.
@@ -116,20 +126,32 @@ typedef struct salty_remote_t salty_remote_t;
 /*
  * The return value when creating a new client instance.
  *
- * Note: Before accessing `client` or `rx_chan`, make sure to check
+ * Note: Before accessing `client` or one of the channels, make sure to check
  * the `success` field for errors. If the creation of the client
- * was not successful, then the `client` and `rx_chan` pointers will be null.
+ * was not successful, then the other pointers will be null.
  */
 typedef struct {
   salty_relayed_data_success_t success;
   const salty_client_t *client;
-  const salty_channel_receiver_t *rx_chan;
+  const salty_channel_receiver_rx_t *receiver_rx;
+  const salty_channel_sender_tx_t *sender_tx;
+  const salty_channel_sender_rx_t *sender_rx;
 } salty_relayed_data_client_ret_t;
 
 /*
- * Free a `salty_channel_receiver_t` instance.
+ * Free a `salty_channel_receiver_rx_t` instance.
  */
-void salty_channel_receiver_free(const salty_channel_receiver_t *ptr);
+void salty_channel_receiver_rx_free(const salty_channel_receiver_rx_t *ptr);
+
+/*
+ * Free a `salty_channel_sender_rx_t` instance.
+ */
+void salty_channel_sender_rx_free(const salty_channel_sender_rx_t *ptr);
+
+/*
+ * Free a `salty_channel_sender_rx_t` instance.
+ */
+void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
 
 /*
  * Connect to the specified SaltyRTC server, do the server and peer handshake

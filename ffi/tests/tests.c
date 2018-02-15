@@ -99,8 +99,10 @@ void *connect_initiator(void *threadarg) {
     printf("    INITIATOR: Freeing client instance\n");
     salty_relayed_data_client_free(client_ret.client);
 
-    printf("    INITIATOR: Freeing rx channel instance\n");
-    salty_channel_receiver_free(client_ret.rx_chan);
+    printf("    INITIATOR: Freeing channel instances\n");
+    salty_channel_receiver_rx_free(client_ret.receiver_rx);
+    salty_channel_sender_tx_free(client_ret.sender_tx);
+    salty_channel_sender_rx_free(client_ret.sender_rx);
 
     printf("  INITIATOR: Freeing event loop\n");
     salty_event_loop_free(loop);
@@ -165,8 +167,10 @@ void *connect_responder(void *threadarg) {
     printf("    RESPONDER: Freeing client instance\n");
     salty_relayed_data_client_free(client_ret.client);
 
-    printf("    RESPONDER: Freeing rx channel instance\n");
-    salty_channel_receiver_free(client_ret.rx_chan);
+    printf("    RESPONDER: Freeing channel instances\n");
+    salty_channel_receiver_rx_free(client_ret.receiver_rx);
+    salty_channel_sender_tx_free(client_ret.sender_tx);
+    salty_channel_sender_rx_free(client_ret.sender_rx);
 
     printf("  RESPONDER: Freeing event loop\n");
     salty_event_loop_free(loop);

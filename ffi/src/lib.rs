@@ -53,7 +53,15 @@ pub use constants::*;
 
 /// The channel for receiving incoming messages.
 #[no_mangle]
-pub enum salty_channel_receiver_t {}
+pub enum salty_channel_receiver_rx_t {}
+
+/// The channel for sending outgoing messages (sending end).
+#[no_mangle]
+pub enum salty_channel_sender_tx_t {}
+
+/// The channel for sending outgoing messages (receiving end).
+#[no_mangle]
+pub enum salty_channel_sender_rx_t {}
 
 /// Result type with all potential error codes.
 ///
@@ -79,15 +87,17 @@ pub enum salty_relayed_data_success_t {
 
 /// The return value when creating a new client instance.
 ///
-/// Note: Before accessing `client` or `rx_chan`, make sure to check
+/// Note: Before accessing `client` or one of the channels, make sure to check
 /// the `success` field for errors. If the creation of the client
-/// was not successful, then the `client` and `rx_chan` pointers will be null.
+/// was not successful, then the other pointers will be null.
 #[repr(C)]
 #[no_mangle]
 pub struct salty_relayed_data_client_ret_t {
     pub success: salty_relayed_data_success_t,
     pub client: *const salty_client_t,
-    pub rx_chan: *const salty_channel_receiver_t,
+    pub receiver_rx: *const salty_channel_receiver_rx_t,
+    pub sender_tx: *const salty_channel_sender_tx_t,
+    pub sender_rx: *const salty_channel_sender_rx_t,
 }
 
 
@@ -97,8 +107,10 @@ pub struct salty_relayed_data_client_ret_t {
 fn make_error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client_ret_t {
     salty_relayed_data_client_ret_t {
         success: reason,
-        client: ptr::null_mut(),
-        rx_chan: ptr::null_mut(),
+        client: ptr::null(),
+        receiver_rx: ptr::null(),
+        sender_tx: ptr::null(),
+        sender_rx: ptr::null(),
     }
 }
 
@@ -194,8 +206,10 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
-        client: Rc::into_raw(Rc::new(RefCell::new(client))) as *mut salty_client_t,
-        rx_chan: Box::into_raw(Box::new(ret.receiver_rx)) as *mut salty_channel_receiver_t,
+        client: Rc::into_raw(Rc::new(RefCell::new(client))) as *const salty_client_t,
+        receiver_rx: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_rx_t,
+        sender_tx: Box::into_raw(Box::new(ret.sender_tx)) as *const salty_channel_sender_tx_t,
+        sender_rx: Box::into_raw(Box::new(ret.sender_rx)) as *const salty_channel_sender_rx_t,
     }
 }
 
@@ -288,7 +302,9 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
         client: Rc::into_raw(Rc::new(RefCell::new(client))) as *const salty_client_t,
-        rx_chan: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_t,
+        receiver_rx: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_rx_t,
+        sender_tx: Box::into_raw(Box::new(ret.sender_tx)) as *const salty_channel_sender_tx_t,
+        sender_rx: Box::into_raw(Box::new(ret.sender_rx)) as *const salty_channel_sender_rx_t,
     }
 }
 
@@ -344,14 +360,38 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
     Rc::from_raw(ptr as *const RefCell<SaltyClient>);
 }
 
-/// Free a `salty_channel_receiver_t` instance.
+/// Free a `salty_channel_receiver_rx_t` instance.
 #[no_mangle]
-pub unsafe extern "C" fn salty_channel_receiver_free(
-    ptr: *const salty_channel_receiver_t,
+pub unsafe extern "C" fn salty_channel_receiver_rx_free(
+    ptr: *const salty_channel_receiver_rx_t,
 ) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Message>);
+}
+
+/// Free a `salty_channel_sender_tx_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_channel_sender_tx_free(
+    ptr: *const salty_channel_sender_tx_t,
+) {
+    if ptr.is_null() {
+        warn!("Tried to free a null pointer");
+        return;
+    }
+    Box::from_raw(ptr as *mut mpsc::UnboundedSender<Vec<u8>>);
+}
+
+/// Free a `salty_channel_sender_rx_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_channel_sender_rx_free(
+    ptr: *const salty_channel_sender_rx_t,
+) {
+    if ptr.is_null() {
+        warn!("Tried to free a null pointer");
+        return;
+    }
+    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Vec<u8>>);
 }
