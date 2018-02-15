@@ -21,6 +21,8 @@ cbindgen = "0.4"
 
 [dev-dependencies]
 lazy_static = "1.0"
+tokio-process = "0.1"
+tokio-timer = "0.1"
 
 [profile.release]
 lto = true

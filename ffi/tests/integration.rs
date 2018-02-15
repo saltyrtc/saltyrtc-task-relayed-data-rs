@@ -1,10 +1,21 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate saltyrtc_client;
+extern crate tokio_core;
+extern crate tokio_process;
+extern crate tokio_timer;
 
 use std::fs::copy;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
+
+use saltyrtc_client::dep::futures::Future;
+use saltyrtc_client::dep::futures::future::Either;
+use tokio_core::reactor::Core;
+use tokio_process::CommandExt;
+use tokio_timer::Timer;
 
 lazy_static! {
     static ref C_TEST_MUTEX: Mutex<()> = Mutex::new(());
@@ -53,10 +64,26 @@ fn build_tests() -> (MutexGuard<'static, ()>, PathBuf) {
 fn c_tests_run() {
     let (_guard, build_dir) = build_tests();
 
-    let output = Command::new("./tests")
+    // Event loop
+    let mut core = Core::new().unwrap();
+
+    // Timer
+    let timer = Timer::default();
+
+    // Create a command future
+    let c_tests = Command::new("./tests")
         .current_dir(&build_dir)
-        .output()
-        .expect("Could not run C tests");
+        .output_async(&core.handle());
+
+    // Run command with timeout
+    let timeout_seconds = 3;
+    let either = core.run(c_tests.select2(timer.sleep(Duration::from_secs(timeout_seconds))))
+        .expect("Failed to run C tests and collect output");
+    let output = match either {
+        Either::A((output, _)) => output,
+        Either::B(_) => panic!("Timeout reached when running C tests"),
+    };
+
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
