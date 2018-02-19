@@ -16,7 +16,6 @@ use std::boxed::Box;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::mem;
-use std::io::{BufReader, Read};
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
@@ -36,7 +35,6 @@ use saltyrtc_client::dep::futures::future::Either;
 use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
 use saltyrtc_client::dep::rmpv::Value;
-use saltyrtc_client::dep::rmpv::decode::read_value;
 use saltyrtc_client::tasks::Task;
 use saltyrtc_task_relayed_data::RelayedDataTask;
 use tokio_core::reactor::{Core, Remote};
@@ -108,26 +106,6 @@ pub enum salty_client_connect_success_t {
 
     /// Another connection error
     CONNECT_ERROR = 9,
-}
-
-/// Result type with all potential error codes.
-///
-/// If no error happened, the value should be `SEND_OK` (0).
-#[repr(u8)]
-#[no_mangle]
-#[derive(Debug, PartialEq, Eq)]
-pub enum salty_client_send_success_t {
-    /// No error.
-    SEND_OK = 0,
-
-    /// One of the arguments was a `null` pointer.
-    SEND_NULL_ARGUMENT = 1,
-
-    /// Sending failed because the message was invalid
-    SEND_MESSAGE_ERROR = 2,
-
-    /// Sending failed
-    SEND_ERROR = 9,
 }
 
 
@@ -597,112 +575,5 @@ pub unsafe extern "C" fn salty_client_connect(
             error!("Send loop error");
             salty_client_connect_success_t::CONNECT_ERROR
         },
-    }
-}
-
-/// Send a message through the outgoing channel.
-///
-/// Parameters:
-///     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
-///         The sending end of the channel for outgoing messages.
-///     msg (`*uint8_t`, borrowed):
-///         Pointer to the message bytes.
-///     msg_len (`uint32_t`, copied):
-///         Length of the message in bytes.
-#[no_mangle]
-pub unsafe extern "C" fn salty_client_send_bytes(
-    sender_tx: *const salty_channel_sender_tx_t,
-    msg: *const uint8_t,
-    msg_len: uint32_t,
-) -> salty_client_send_success_t {
-    // Null pointer checks
-    if sender_tx.is_null() {
-        error!("Sender channel pointer is null");
-        return salty_client_send_success_t::SEND_NULL_ARGUMENT;
-    }
-    if msg.is_null() {
-        error!("Message pointer is null");
-        return salty_client_send_success_t::SEND_NULL_ARGUMENT;
-    }
-
-    // Get pointer to UnboundedSender
-    let sender = &*(sender_tx as *const mpsc::UnboundedSender<Value>) as &mpsc::UnboundedSender<Value>;
-
-    // Parse message bytes into a rmpv `Value`
-    let msg_slice: &[u8] = slice::from_raw_parts(msg, msg_len as usize);
-    let mut msg_reader = BufReader::with_capacity(msg_slice.len(), msg_slice);
-    let msg: Value = match read_value(&mut msg_reader) {
-        Ok(val) => val,
-        Err(e) => {
-            error!("Could not send bytes: Not valid MsgPack data: {}", e);
-            return salty_client_send_success_t::SEND_MESSAGE_ERROR;
-        }
-    };
-
-    // Make sure that the buffer was fully consumed
-    if msg_reader.bytes().next().is_some() {
-        error!("Could not send bytes: Not valid msgpack data (buffer not fully consumed)");
-        return salty_client_send_success_t::SEND_MESSAGE_ERROR;
-    }
-
-    match sender.unbounded_send(msg) {
-        Ok(_) => salty_client_send_success_t::SEND_OK,
-        Err(e) => {
-            error!("Sending message failed: {}", e);
-            salty_client_send_success_t::SEND_ERROR
-        },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_send_bytes_sender_null_ptr() {
-        let msg = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
-        let result = unsafe {
-            salty_client_send_bytes(
-                ptr::null(),
-                msg,
-                3,
-            )
-        };
-        assert_eq!(result, salty_client_send_success_t::SEND_NULL_ARGUMENT);
-    }
-
-    #[test]
-    fn test_send_bytes_msg_null_ptr() {
-        let (tx, _rx) = mpsc::unbounded::<Value>();
-        let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
-        let result = unsafe {
-            salty_client_send_bytes(
-                tx_ptr,
-                ptr::null(),
-                3,
-            )
-        };
-        assert_eq!(result, salty_client_send_success_t::SEND_NULL_ARGUMENT);
-    }
-
-    #[test]
-    fn test_msgpack_decode_invalid() {
-        // Create channel
-        let (tx, _rx) = mpsc::unbounded::<Value>();
-        let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
-
-        // Create message
-        // This will result in a msgpack value `Integer(1)`, the remaining two integers
-        // are not part of the message anymore.
-        let msg_ptr = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
-
-        let result = unsafe {
-            salty_client_send_bytes(
-                tx_ptr,
-                msg_ptr,
-                3,
-            )
-        };
-        assert_eq!(result, salty_client_send_success_t::SEND_MESSAGE_ERROR);
     }
 }
