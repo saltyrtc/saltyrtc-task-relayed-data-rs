@@ -70,6 +70,10 @@ enum salty_client_send_success_t {
    */
   SEND_NULL_ARGUMENT = 1,
   /*
+   * Sending failed because the message was invalid
+   */
+  SEND_MESSAGE_ERROR = 2,
+  /*
    * Sending failed
    */
   SEND_ERROR = 9,
@@ -115,14 +119,14 @@ typedef struct salty_channel_receiver_rx_t salty_channel_receiver_rx_t;
 /*
  * The channel for sending outgoing messages (receiving end).
  *
- * On the Rust side, this is an `UnboundedReceiver<Vec<u8>>`.
+ * On the Rust side, this is an `UnboundedReceiver<Value>`.
  */
 typedef struct salty_channel_sender_rx_t salty_channel_sender_rx_t;
 
 /*
  * The channel for sending outgoing messages (sending end).
  *
- * On the Rust side, this is an `UnboundedSender<Vec<u8>>`.
+ * On the Rust side, this is an `UnboundedSender<Value>`.
  */
 typedef struct salty_channel_sender_tx_t salty_channel_sender_tx_t;
 

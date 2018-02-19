@@ -41,6 +41,7 @@ use libc::{uint8_t, uint32_t};
 use saltyrtc_client::{SaltyClient, SaltyClientBuilder};
 use saltyrtc_client::crypto::{KeyPair, PublicKey, AuthToken};
 use saltyrtc_client::dep::futures::sync::mpsc;
+use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::tasks::BoxedTask;
 pub use saltyrtc_client_ffi::{
     salty_client_t, salty_keypair_t, salty_remote_t,
@@ -59,6 +60,7 @@ pub use constants::*;
 /// If no error happened, the value should be `OK` (0).
 #[repr(u8)]
 #[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
 pub enum salty_relayed_data_success_t {
     /// No error.
     OK = 0,
@@ -108,8 +110,8 @@ fn make_error(reason: salty_relayed_data_success_t) -> salty_relayed_data_client
 struct ClientBuilderRet {
     builder: SaltyClientBuilder,
     receiver_rx: mpsc::UnboundedReceiver<Message>,
-    sender_tx: mpsc::UnboundedSender<Vec<u8>>,
-    sender_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    sender_tx: mpsc::UnboundedSender<Value>,
+    sender_rx: mpsc::UnboundedReceiver<Value>,
 }
 
 /// Helper function to parse arguments and to create a new `SaltyClientBuilder`.
@@ -373,7 +375,7 @@ pub unsafe extern "C" fn salty_channel_sender_tx_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut mpsc::UnboundedSender<Vec<u8>>);
+    Box::from_raw(ptr as *mut mpsc::UnboundedSender<Value>);
 }
 
 /// Free a `salty_channel_sender_rx_t` instance.
@@ -385,5 +387,5 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Vec<u8>>);
+    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Value>);
 }

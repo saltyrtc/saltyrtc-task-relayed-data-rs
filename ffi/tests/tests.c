@@ -18,7 +18,11 @@ void *connect_responder(void *threadarg);
 
 // Statics
 static sem_t auth_token_set;
+static sem_t initiator_channel_ready;
+static sem_t responder_channel_ready;
 static uint8_t *auth_token = NULL;
+static const salty_channel_sender_tx_t *initiator_sender = NULL;
+static const salty_channel_sender_tx_t *responder_sender = NULL;
 
 /**
  * Struct used to pass data from the main thread to the client threads.
@@ -56,6 +60,10 @@ void *connect_initiator(void *threadarg) {
         printf("    INITIATOR ERROR: Could not create client: %d", client_ret.success);
         pthread_exit((void *)NULL);
     }
+
+    initiator_sender = client_ret.sender_tx;
+    printf("    INITIATOR: Notifying main thread that the outgoing channel is ready\n");
+    sem_post(&initiator_channel_ready);
 
     printf("    INITIATOR: Copying auth token to static variable\n");
     auth_token = malloc(32 * sizeof(uint8_t));
@@ -141,6 +149,10 @@ void *connect_responder(void *threadarg) {
         printf("      RESPONDER ERROR: Could not create client: %d", client_ret.success);
         pthread_exit((void *)NULL);
     }
+
+    responder_sender = client_ret.sender_tx;
+    printf("    RESPONDER: Notifying main thread that the outgoing channel is ready\n");
+    sem_post(&responder_channel_ready);
 
     printf("    RESPONDER: Connecting\n");
     salty_client_connect_success_t connect_success = salty_client_connect(
@@ -238,6 +250,7 @@ int main() {
     if (!salty_log_change_level(LEVEL_WARN)) {
         return EXIT_FAILURE;
     }
+    salty_log_change_level(LEVEL_DEBUG);
 
     printf("  Creating key pairs\n");
     const salty_keypair_t *i_keypair = salty_keypair_new();
@@ -253,8 +266,10 @@ int main() {
     const uint8_t *i_pubkey_ref = salty_keypair_public_key(i_keypair);
     memcpy(i_pubkey, i_pubkey_ref, 32 * sizeof(uint8_t));
 
-    printf("  Initiating semaphore\n");
+    printf("  Initiating semaphores\n");
     sem_init(&auth_token_set, 0, 0);
+    sem_init(&initiator_channel_ready, 0, 0);
+    sem_init(&responder_channel_ready, 0, 0);
 
     // Start initiator thread
     pthread_t i_thread;
@@ -279,6 +294,19 @@ int main() {
         .ca_cert_len = ca_cert_len
     };
     pthread_create(&r_thread, NULL, connect_responder, (void*)&r_data);
+
+    // Waiting for connection event
+    printf("  Waiting for initiator tx channel\n");
+    sem_wait(&initiator_channel_ready);
+    printf("  Waiting for responder tx channel\n");
+    sem_wait(&responder_channel_ready);
+    printf("  Both outgoing channels are ready\n");
+    printf("  Sending message from initiator to responder\n");
+    const uint8_t msg[] = { 0x93, 0x01, 0x02, 0x03 };
+    if (SEND_OK != salty_client_send_bytes(initiator_sender, msg, 4)) {
+        printf("ERROR: Sending message from initiator to responder failed\n");
+        return EXIT_FAILURE;
+    }
 
     // Joining client threads
     salty_client_connect_success_t *i_success;
@@ -316,8 +344,10 @@ int main() {
     printf("  Freeing unused keypair\n");
     salty_keypair_free(unused_keypair);
 
-    printf("  Destroying semaphore\n");
+    printf("  Destroying semaphores\n");
     sem_destroy(&auth_token_set);
+    sem_destroy(&initiator_channel_ready);
+    sem_destroy(&responder_channel_ready);
 
     printf("END C TEST\n");
 

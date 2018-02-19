@@ -16,6 +16,7 @@ use std::boxed::Box;
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::mem;
+use std::io::{BufReader, Read};
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
@@ -30,10 +31,14 @@ use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use saltyrtc_client::{self, SaltyClient};
 use saltyrtc_client::crypto::KeyPair;
-use saltyrtc_client::dep::futures::{Future, Stream};
+use saltyrtc_client::dep::futures::{Future, Stream, Sink};
 use saltyrtc_client::dep::futures::future::Either;
 use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
+use saltyrtc_client::dep::rmpv::Value;
+use saltyrtc_client::dep::rmpv::decode::read_value;
+use saltyrtc_client::tasks::Task;
+use saltyrtc_task_relayed_data::RelayedDataTask;
 use tokio_core::reactor::{Core, Remote};
 
 use constants::*;
@@ -69,13 +74,13 @@ pub enum salty_channel_receiver_rx_t {}
 
 /// The channel for sending outgoing messages (sending end).
 ///
-/// On the Rust side, this is an `UnboundedSender<Vec<u8>>`.
+/// On the Rust side, this is an `UnboundedSender<Value>`.
 #[no_mangle]
 pub enum salty_channel_sender_tx_t {}
 
 /// The channel for sending outgoing messages (receiving end).
 ///
-/// On the Rust side, this is an `UnboundedReceiver<Vec<u8>>`.
+/// On the Rust side, this is an `UnboundedReceiver<Value>`.
 #[no_mangle]
 pub enum salty_channel_sender_rx_t {}
 
@@ -84,6 +89,7 @@ pub enum salty_channel_sender_rx_t {}
 /// If no error happened, the value should be `CONNECT_OK` (0).
 #[repr(u8)]
 #[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_connect_success_t {
     /// No error.
     CONNECT_OK = 0,
@@ -109,12 +115,16 @@ pub enum salty_client_connect_success_t {
 /// If no error happened, the value should be `SEND_OK` (0).
 #[repr(u8)]
 #[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_send_success_t {
     /// No error.
     SEND_OK = 0,
 
     /// One of the arguments was a `null` pointer.
     SEND_NULL_ARGUMENT = 1,
+
+    /// Sending failed because the message was invalid
+    SEND_MESSAGE_ERROR = 2,
 
     /// Sending failed
     SEND_ERROR = 9,
@@ -445,7 +455,7 @@ pub unsafe extern "C" fn salty_client_connect(
     let core = &mut *(event_loop as *mut Core) as &mut Core;
 
     // Get channel sender instance
-    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<Vec<u8>>);
+    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<Value>);
 
     // Read CA certificate (if present)
     let ca_cert_opt: Option<Certificate> = if ca_cert.is_null() {
@@ -530,12 +540,43 @@ pub unsafe extern "C" fn salty_client_connect(
         },
     };
 
-    // Create send loop future
-    let send_loop = (*sender_rx_box)
-        .for_each(|bytes| {
-            warn!("Sending bytes: {:?}", bytes);
-            Ok(())
-        });
+    // Get access to task tx channel
+    let task_sender: mpsc::UnboundedSender<Value> = {
+        // Lock task mutex
+        let mut task_locked = match task.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                error!("Could not lock task mutex: {}", e);
+                return salty_client_connect_success_t::CONNECT_ERROR;
+            }
+        };
+
+        // Downcast generic Task to a RelayedDataTask
+        let rdt: &mut RelayedDataTask = {
+            let downcast_res = (&mut **task_locked as &mut Task)
+                .downcast_mut::<RelayedDataTask>();
+            match downcast_res {
+                Some(task) => task,
+                None => {
+                    error!("Could not downcast task instance");
+                    return salty_client_connect_success_t::CONNECT_ERROR;
+                }
+            }
+        };
+
+        match rdt.get_sender() {
+            Ok(sender) => sender,
+            Err(e) => {
+                error!("Could not get task sender: {}", e);
+                return salty_client_connect_success_t::CONNECT_ERROR;
+            }
+        }
+    };
+
+    // Forward outgoing messages to task
+    let send_loop = (*sender_rx_box).forward(
+        task_sender.sink_map_err(|e| error!("Could not sink message: {}", e))
+    );
 
     // Run task loop future to completion
     match core.run(task_loop.select2(send_loop)) {
@@ -575,23 +616,93 @@ pub unsafe extern "C" fn salty_client_send_bytes(
     msg_len: uint32_t,
 ) -> salty_client_send_success_t {
     // Null pointer checks
+    if sender_tx.is_null() {
+        error!("Sender channel pointer is null");
+        return salty_client_send_success_t::SEND_NULL_ARGUMENT;
+    }
     if msg.is_null() {
         error!("Message pointer is null");
         return salty_client_send_success_t::SEND_NULL_ARGUMENT;
     }
 
     // Get pointer to UnboundedSender
-    let sender = &*(sender_tx as *const mpsc::UnboundedSender<Vec<u8>>) as &mpsc::UnboundedSender<Vec<u8>>;
+    let sender = &*(sender_tx as *const mpsc::UnboundedSender<Value>) as &mpsc::UnboundedSender<Value>;
 
-    // Copy message bytes into Vec
+    // Parse message bytes into a rmpv `Value`
     let msg_slice: &[u8] = slice::from_raw_parts(msg, msg_len as usize);
-    let msg_vec: Vec<u8> = msg_slice.into();
+    let mut msg_reader = BufReader::with_capacity(msg_slice.len(), msg_slice);
+    let msg: Value = match read_value(&mut msg_reader) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("Could not send bytes: Not valid MsgPack data: {}", e);
+            return salty_client_send_success_t::SEND_MESSAGE_ERROR;
+        }
+    };
 
-    match sender.unbounded_send(msg_vec) {
+    // Make sure that the buffer was fully consumed
+    if msg_reader.bytes().next().is_some() {
+        error!("Could not send bytes: Not valid msgpack data (buffer not fully consumed)");
+        return salty_client_send_success_t::SEND_MESSAGE_ERROR;
+    }
+
+    match sender.unbounded_send(msg) {
         Ok(_) => salty_client_send_success_t::SEND_OK,
         Err(e) => {
             error!("Sending message failed: {}", e);
             salty_client_send_success_t::SEND_ERROR
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_send_bytes_sender_null_ptr() {
+        let msg = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
+        let result = unsafe {
+            salty_client_send_bytes(
+                ptr::null(),
+                msg,
+                3,
+            )
+        };
+        assert_eq!(result, salty_client_send_success_t::SEND_NULL_ARGUMENT);
+    }
+
+    #[test]
+    fn test_send_bytes_msg_null_ptr() {
+        let (tx, _rx) = mpsc::unbounded::<Value>();
+        let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
+        let result = unsafe {
+            salty_client_send_bytes(
+                tx_ptr,
+                ptr::null(),
+                3,
+            )
+        };
+        assert_eq!(result, salty_client_send_success_t::SEND_NULL_ARGUMENT);
+    }
+
+    #[test]
+    fn test_msgpack_decode_invalid() {
+        // Create channel
+        let (tx, _rx) = mpsc::unbounded::<Value>();
+        let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
+
+        // Create message
+        // This will result in a msgpack value `Integer(1)`, the remaining two integers
+        // are not part of the message anymore.
+        let msg_ptr = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
+
+        let result = unsafe {
+            salty_client_send_bytes(
+                tx_ptr,
+                msg_ptr,
+                3,
+            )
+        };
+        assert_eq!(result, salty_client_send_success_t::SEND_MESSAGE_ERROR);
     }
 }
