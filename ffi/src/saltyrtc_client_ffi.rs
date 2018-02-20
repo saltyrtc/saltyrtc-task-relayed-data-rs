@@ -35,6 +35,8 @@ use constants::*;
 pub enum salty_keypair_t {}
 
 /// An event loop instance.
+///
+/// The event loop is not thread safe.
 #[no_mangle]
 pub enum salty_event_loop_t {}
 

@@ -23,6 +23,8 @@ static sem_t responder_channel_ready;
 static uint8_t *auth_token = NULL;
 static const salty_channel_sender_tx_t *initiator_sender = NULL;
 static const salty_channel_sender_tx_t *responder_sender = NULL;
+static const salty_channel_receiver_rx_t *initiator_receiver = NULL;
+static const salty_channel_receiver_rx_t *responder_receiver = NULL;
 
 /**
  * Struct used to pass data from the main thread to the client threads.
@@ -62,7 +64,8 @@ void *connect_initiator(void *threadarg) {
     }
 
     initiator_sender = client_ret.sender_tx;
-    printf("    INITIATOR: Notifying main thread that the outgoing channel is ready\n");
+    initiator_receiver = client_ret.receiver_rx;
+    printf("    INITIATOR: Notifying main thread that the channels are ready\n");
     sem_post(&initiator_channel_ready);
 
     printf("    INITIATOR: Copying auth token to static variable\n");
@@ -134,7 +137,7 @@ void *connect_responder(void *threadarg) {
     printf("    RESPONDER: Getting event loop remote handle\n");
     const salty_remote_t *remote = salty_event_loop_get_remote(loop);
 
-    printf("    RESPONDER: Waiting for auth token semaphore\n");
+    printf("    RESPONDER: Waiting for auth token semaphore...\n");
     sem_wait(&auth_token_set);
 
     printf("    RESPONDER: Creating client instance\n");
@@ -151,7 +154,8 @@ void *connect_responder(void *threadarg) {
     }
 
     responder_sender = client_ret.sender_tx;
-    printf("    RESPONDER: Notifying main thread that the outgoing channel is ready\n");
+    responder_receiver = client_ret.receiver_rx;
+    printf("    RESPONDER: Notifying main thread that the channels are ready\n");
     sem_post(&responder_channel_ready);
 
     printf("    RESPONDER: Connecting\n");
@@ -296,19 +300,51 @@ int main() {
     pthread_create(&r_thread, NULL, connect_responder, (void*)&r_data);
 
     // Waiting for connection event
-    printf("  Waiting for initiator tx channel\n");
+    printf("  Waiting for initiator tx channel...\n");
     sem_wait(&initiator_channel_ready);
-    printf("  Waiting for responder tx channel\n");
+    printf("  Waiting for responder tx channel...\n");
     sem_wait(&responder_channel_ready);
     printf("  Both outgoing channels are ready\n");
+
+    // Send message
     printf("  Sending message from initiator to responder\n");
     const uint8_t msg[] = { 0x93, 0x01, 0x02, 0x03 };
     if (SEND_OK != salty_client_send_bytes(initiator_sender, msg, 4)) {
-        printf("ERROR: Sending message from initiator to responder failed\n");
+        printf("  ERROR: Sending message from initiator to responder failed\n");
         return EXIT_FAILURE;
     }
 
+    // Receive message
+    printf("  Waiting for message to arrive...\n");
+    uint32_t timeout_ms = 10000;
+    const salty_client_recv_ret_t recv_ret = salty_client_recv_event(responder_receiver, &timeout_ms);
+    switch (recv_ret.success) {
+        case RECV_OK:
+            printf("  OK: Message (%lu bytes) from initiator arrived!\n", recv_ret.event->msg_bytes_len);
+            if (recv_ret.event->msg_bytes_len != 4 ||
+                recv_ret.event->msg_bytes[0] != 0x93 ||
+                recv_ret.event->msg_bytes[1] != 0x01 ||
+                recv_ret.event->msg_bytes[2] != 0x02 ||
+                recv_ret.event->msg_bytes[3] != 0x03) {
+                printf("  ERROR: Invalid message received\n");
+                return EXIT_FAILURE;
+            } else {
+                printf("  OK: Message is valid!\n");
+            }
+            break;
+        case RECV_NO_DATA:
+            printf("  ERROR: Waiting for message timed out!\n");
+            return EXIT_FAILURE;
+        case RECV_STREAM_ENDED:
+            printf("  ERROR: The incoming event stream has ended!\n");
+            return EXIT_FAILURE;
+        default:
+            printf("  ERROR: Error while waiting for incoming message\n");
+            return EXIT_FAILURE;
+    }
+
     // Joining client threads
+    printf("  Waiting for client threads to terminate...\n");
     salty_client_connect_success_t *i_success;
     salty_client_connect_success_t *r_success;
     pthread_join(i_thread, (void*)&i_success);

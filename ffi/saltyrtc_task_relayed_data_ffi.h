@@ -195,6 +195,8 @@ typedef struct salty_client_t salty_client_t;
 
 /*
  * An event loop instance.
+ *
+ * The event loop is not thread safe.
  */
 typedef struct salty_event_loop_t salty_event_loop_t;
 
@@ -310,17 +312,15 @@ salty_client_connect_success_t salty_client_connect(const char *host,
  * Parameters:
  *     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):
  *         The receiving end of the channel for incoming events.
- *     event_loop (`*salty_event_loop_t`, borrowed):
- *         The event loop that is also associated with the current connection.
- *     timeout (`*uint32_t`, borrowed):
- *         If this is `null`, then the function call will block until the connection
- *         with the peer has been closed.
- *         If this is `0`, then the function will never block. It will either return an event
- *         or `
+ *     timeout_ms (`*uint32_t`, borrowed):
+ *         - If this is `null`, then the function call will block.
+ *         - If this is `0`, then the function will never block. It will either return an event
+ *         or `RECV_NO_DATA`.
+ *         - If this is a value > 0, then the specified timeout in milliseconds will be used.
+ *         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
  */
 salty_client_recv_ret_t salty_client_recv_event(const salty_channel_receiver_rx_t *receiver_rx,
-                                                const salty_event_loop_t *event_loop,
-                                                const uint32_t *timeout);
+                                                const uint32_t *timeout_ms);
 
 /*
  * Send a message through the outgoing channel.

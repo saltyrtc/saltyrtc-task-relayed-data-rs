@@ -827,26 +827,20 @@ pub unsafe extern "C" fn salty_client_send_bytes(
 /// Parameters:
 ///     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):
 ///         The receiving end of the channel for incoming events.
-///     event_loop (`*salty_event_loop_t`, borrowed):
-///         The event loop that is also associated with the current connection.
-///     timeout (`*uint32_t`, borrowed):
-///         If this is `null`, then the function call will block until the connection
-///         with the peer has been closed.
-///         If this is `0`, then the function will never block. It will either return an event
-///         or `
+///     timeout_ms (`*uint32_t`, borrowed):
+///         - If this is `null`, then the function call will block.
+///         - If this is `0`, then the function will never block. It will either return an event
+///         or `RECV_NO_DATA`.
+///         - If this is a value > 0, then the specified timeout in milliseconds will be used.
+///         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_recv_event(
     receiver_rx: *const salty_channel_receiver_rx_t,
-    event_loop: *const salty_event_loop_t,
-    timeout: *const uint32_t,
+    timeout_ms: *const uint32_t,
 ) -> salty_client_recv_ret_t {
     // Null checks
     if receiver_rx.is_null() {
         error!("Receiver channel pointer is null");
-        return make_event_recv_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
-    }
-    if event_loop.is_null() {
-        error!("Event loop pointer is null");
         return make_event_recv_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
     }
 
@@ -857,16 +851,13 @@ pub unsafe extern "C" fn salty_client_recv_event(
     }
 
     // Determine blocking mode
-    let blocking: BlockingMode = if timeout == ptr::null() {
+    let blocking: BlockingMode = if timeout_ms == ptr::null() {
         BlockingMode::BLOCKING
-    } else if *timeout == 0 {
+    } else if *timeout_ms == 0 {
         BlockingMode::NONBLOCKING
     } else {
-        BlockingMode::TIMEOUT(Duration::from_secs(*timeout as u64))
+        BlockingMode::TIMEOUT(Duration::from_millis(*timeout_ms as u64))
     };
-
-    // Get event loop reference
-    let core = &mut *(event_loop as *mut Core) as &mut Core;
 
     // Get channel receiver reference
     let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<Message>)
@@ -932,11 +923,10 @@ pub unsafe extern "C" fn salty_client_recv_event(
 
     match blocking {
         BlockingMode::BLOCKING => {
-            let msg_res = core.run(rx.into_future());
-            match msg_res {
-                Ok((Some(msg), _)) => make_message_event_ret(msg),
-                Ok((None, _)) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Err(_) => {
+            match rx.wait().next() {
+                Some(Ok(msg)) => make_message_event_ret(msg),
+                None => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                Some(Err(_)) => {
                     error!("Could not receive event");
                     make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
                 },
@@ -945,7 +935,7 @@ pub unsafe extern "C" fn salty_client_recv_event(
         BlockingMode::NONBLOCKING => {
             let mut rx_future = rx.into_future();
             let nb_future = nonblocking::new(&mut rx_future);
-            let res = core.run(nb_future);
+            let res = nb_future.wait();
             match res {
                 Ok(Some((Some(msg), _))) => make_message_event_ret(msg),
                 Ok(Some((None, _))) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
@@ -959,7 +949,7 @@ pub unsafe extern "C" fn salty_client_recv_event(
         BlockingMode::TIMEOUT(duration) => {
             let timeout_future = Timer::default().sleep(duration).map_err(|_| ());
             let mut rx_future = rx.into_future();
-            let res = core.run(rx_future.select2(timeout_future));
+            let res = rx_future.select2(timeout_future).wait();
             match res {
                 Ok(Either::A(((Some(msg), _), _))) => make_message_event_ret(msg),
                 Ok(Either::A(((None, _), _))) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
@@ -978,7 +968,6 @@ pub unsafe extern "C" fn salty_client_recv_event(
 mod tests {
     use super::*;
     use saltyrtc_client::CloseCode;
-    use saltyrtc_client_ffi::salty_event_loop_new;
 
     #[test]
     fn test_send_bytes_sender_null_ptr() {
@@ -1030,30 +1019,19 @@ mod tests {
 
     #[test]
     fn test_recv_rx_channel_null_ptr() {
-        let (_tx, rx) = mpsc::unbounded::<Message>();
-        let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
-        let result = unsafe { salty_client_recv_event(rx_ptr, ptr::null(), ptr::null()) };
-        assert_eq!(result.success, salty_client_recv_success_t::RECV_NULL_ARGUMENT);
-    }
-
-    #[test]
-    fn test_recv_event_loop_null_ptr() {
-        let eventloop = salty_event_loop_new();
-        let result = unsafe { salty_client_recv_event(ptr::null(), eventloop, ptr::null()) };
+        let result = unsafe { salty_client_recv_event(ptr::null(), ptr::null()) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NULL_ARGUMENT);
     }
 
     #[test]
     fn test_recv_nonblocking() {
-        let eventloop = salty_event_loop_new();
-
         let (tx, rx) = mpsc::unbounded::<Message>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         let timeout_ptr = Box::into_raw(Box::new(0u32)) as *const uint32_t;
 
         // Receive no data
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Send two messages
@@ -1061,7 +1039,7 @@ mod tests {
         tx.unbounded_send(Message::Disconnect(CloseCode::from_number(3002).unwrap())).unwrap();
 
         // Receive data
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
         assert_eq!(result.event.is_null(), false);
         unsafe {
@@ -1078,7 +1056,7 @@ mod tests {
         }
 
         // Receive disconnect
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
         assert_eq!(result.event.is_null(), false);
         unsafe {
@@ -1090,26 +1068,30 @@ mod tests {
         }
 
         // Receive no data
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Drop sender
         ::std::mem::drop(tx);
 
         // Receive stream ended
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_STREAM_ENDED);
+
+        // Free some memory
+        unsafe {
+            Box::from_raw(timeout_ptr as *mut u32);
+            Box::from_raw(rx_ptr as *mut salty_channel_receiver_rx_t);
+        }
     }
 
     #[test]
-    fn test_recv_timeout() {
-        let eventloop = salty_event_loop_new();
-
+    fn test_recv_timeout_thread() {
         let (tx, rx) = mpsc::unbounded::<Message>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
-        let timeout_1s_ptr = Box::into_raw(Box::new(1u32)) as *const uint32_t;
-        let timeout_600s_ptr = Box::into_raw(Box::new(600u32)) as *const uint32_t;
+        let timeout_1s_ptr = Box::into_raw(Box::new(1_000u32)) as *const uint32_t;
+        let timeout_600s_ptr = Box::into_raw(Box::new(600_000u32)) as *const uint32_t;
 
         // Set up thread to post a message after 1.5 seconds
         let child = ::std::thread::spawn(move || {
@@ -1118,11 +1100,11 @@ mod tests {
         });
 
         // Wait for max 1s, but receive no data (timeout)
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_1s_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_1s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Wait again for max 1s, now data from the thread should arrive!
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_1s_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_1s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
         assert_eq!(result.event.is_null(), false);
         unsafe {
@@ -1137,13 +1119,31 @@ mod tests {
         child.join().unwrap();
 
         // Immediately receive stream ended
-        let result = unsafe { salty_client_recv_event(rx_ptr, eventloop, timeout_600s_ptr) };
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_600s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_STREAM_ENDED);
 
         // Free some memory
         unsafe {
             Box::from_raw(timeout_1s_ptr as *mut u32);
             Box::from_raw(timeout_600s_ptr as *mut u32);
+            Box::from_raw(rx_ptr as *mut salty_channel_receiver_rx_t);
+        }
+    }
+
+    #[test]
+    fn test_recv_timeout_simple() {
+        let (tx, rx) = mpsc::unbounded::<Message>();
+        let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
+
+        // Wait for max 500ms, but receive no data (timeout)
+        let timeout_500ms_ptr = Box::into_raw(Box::new(500u32)) as *const uint32_t;
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_500ms_ptr) };
+        assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
+
+        // Free some memory
+        unsafe {
+            Box::from_raw(timeout_500ms_ptr as *mut u32);
+            Box::from_raw(rx_ptr as *mut salty_channel_receiver_rx_t);
         }
     }
 
