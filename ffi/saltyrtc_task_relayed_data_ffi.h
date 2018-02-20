@@ -23,7 +23,7 @@
 #define LEVEL_WARN 3
 
 /*
- * Result type with all potential error codes.
+ * Result type with all potential connection error codes.
  *
  * If no error happened, the value should be `CONNECT_OK` (0).
  */
@@ -56,6 +56,35 @@ enum salty_client_connect_success_t {
 typedef uint8_t salty_client_connect_success_t;
 
 /*
+ * Result type with all potential event receiving error codes.
+ *
+ * If no error happened, the value should be `RECV_OK` (0).
+ */
+enum salty_client_recv_success_t {
+  /*
+   * No error.
+   */
+  RECV_OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
+  RECV_NULL_ARGUMENT = 1,
+  /*
+   * No data is available (timeout reached).
+   */
+  RECV_NO_DATA = 2,
+  /*
+   * The stream has ended and *SHOULD NOT* be polled again.
+   */
+  RECV_STREAM_ENDED = 3,
+  /*
+   * Another receiving error
+   */
+  RECV_ERROR = 9,
+};
+typedef uint8_t salty_client_recv_success_t;
+
+/*
  * Result type with all potential error codes.
  *
  * If no error happened, the value should be `SEND_OK` (0).
@@ -79,6 +108,33 @@ enum salty_client_send_success_t {
   SEND_ERROR = 9,
 };
 typedef uint8_t salty_client_send_success_t;
+
+/*
+ * Possible event types.
+ */
+enum salty_event_type_t {
+  /*
+   * A connection is being established.
+   */
+  EVENT_CONNECTING = 1,
+  /*
+   * Server handshake completed.
+   */
+  EVENT_SERVER_HANDSHAKE_COMPLETED = 2,
+  /*
+   * Peer handshake completed.
+   */
+  EVENT_PEER_HANDSHAKE_COMPLETED = 3,
+  /*
+   * The connection has ended.
+   */
+  EVENT_DISCONNECTED = 16,
+  /*
+   * Incoming message.
+   */
+  EVENT_INCOMING_MSG = 255,
+};
+typedef uint8_t salty_event_type_t;
 
 /*
  * Result type with all potential error codes.
@@ -155,6 +211,33 @@ typedef struct salty_keypair_t salty_keypair_t;
 typedef struct salty_remote_t salty_remote_t;
 
 /*
+ * An event (e.g. a connectivity change or an incoming message).
+ *
+ * If the event type is `EVENT_INCOMING_MSG`, then the `msg_bytes` field will
+ * point to the bytes of the decrypted message. Otherwise, the field is `null`.
+ *
+ * If the event type is `EVENT_DISCONNECTED`, then the `close_code` field will
+ * contain the close code. Otherwise, the field is `0`.
+ */
+typedef struct {
+  salty_event_type_t event_type;
+  const uint8_t *msg_bytes;
+  uintptr_t msg_bytes_len;
+  uint16_t close_code;
+} salty_event_t;
+
+/*
+ * The return value when trying to receive an event.
+ *
+ * Note: Before accessing `event`, make sure to check the `success` field
+ * for errors. If an error occurred, the `event` field will be `null`.
+ */
+typedef struct {
+  salty_client_recv_success_t success;
+  const salty_event_t *event;
+} salty_client_recv_ret_t;
+
+/*
  * The return value when creating a new client instance.
  *
  * Note: Before accessing `client` or one of the channels, make sure to check
@@ -220,6 +303,24 @@ salty_client_connect_success_t salty_client_connect(const char *host,
                                                     uint16_t timeout_s,
                                                     const uint8_t *ca_cert,
                                                     uint32_t ca_cert_len);
+
+/*
+ * Receive an event from the outgoing channel.
+ *
+ * Parameters:
+ *     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):
+ *         The receiving end of the channel for incoming events.
+ *     event_loop (`*salty_event_loop_t`, borrowed):
+ *         The event loop that is also associated with the current connection.
+ *     timeout (`*uint32_t`, borrowed):
+ *         If this is `null`, then the function call will block until the connection
+ *         with the peer has been closed.
+ *         If this is `0`, then the function will never block. It will either return an event
+ *         or `
+ */
+salty_client_recv_ret_t salty_client_recv_event(const salty_channel_receiver_rx_t *receiver_rx,
+                                                const salty_event_loop_t *event_loop,
+                                                const uint32_t *timeout);
 
 /*
  * Send a message through the outgoing channel.
