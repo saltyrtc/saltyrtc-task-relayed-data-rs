@@ -120,9 +120,6 @@ void *connect_initiator(void *threadarg) {
     printf("    INITIATOR: Freeing channel instances\n");
     salty_channel_receiver_rx_free(client_ret.receiver_rx);
     salty_channel_sender_tx_free(client_ret.sender_tx);
-    salty_channel_sender_rx_free(client_ret.sender_rx);
-    salty_channel_disconnect_tx_free(client_ret.disconnect_tx);
-    salty_channel_disconnect_rx_free(client_ret.disconnect_rx);
 
     printf("  INITIATOR: Freeing event loop\n");
     salty_event_loop_free(loop);
@@ -200,9 +197,6 @@ void *connect_responder(void *threadarg) {
     printf("    RESPONDER: Freeing channel instances\n");
     salty_channel_receiver_rx_free(client_ret.receiver_rx);
     salty_channel_sender_tx_free(client_ret.sender_tx);
-    salty_channel_sender_rx_free(client_ret.sender_rx);
-    salty_channel_disconnect_tx_free(client_ret.disconnect_tx);
-    salty_channel_disconnect_rx_free(client_ret.disconnect_rx);
 
     printf("  RESPONDER: Freeing event loop\n");
     salty_event_loop_free(loop);
