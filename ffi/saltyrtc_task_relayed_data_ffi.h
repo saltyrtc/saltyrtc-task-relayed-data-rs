@@ -56,6 +56,31 @@ enum salty_client_connect_success_t {
 typedef uint8_t salty_client_connect_success_t;
 
 /*
+ * Result type with all potential disconnection error codes.
+ *
+ * If no error happened, the value should be `DISCONNECT_OK` (0).
+ */
+enum salty_client_disconnect_success_t {
+  /*
+   * No error.
+   */
+  DISCONNECT_OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
+  DISCONNECT_NULL_ARGUMENT = 1,
+  /*
+   * Invalid close code
+   */
+  DISCONNECT_BAD_CLOSE_CODE = 2,
+  /*
+   * Another connection error
+   */
+  DISCONNECT_ERROR = 9,
+};
+typedef uint8_t salty_client_disconnect_success_t;
+
+/*
  * Result type with all potential event receiving error codes.
  *
  * If no error happened, the value should be `RECV_OK` (0).
@@ -166,23 +191,37 @@ enum salty_relayed_data_success_t {
 typedef uint8_t salty_relayed_data_success_t;
 
 /*
+ * The oneshot channel for closing the connection (receiving end).
+ *
+ * On the Rust side, this is an `oneshot::Receiver<CloseCode>`.
+ */
+typedef struct salty_channel_disconnect_rx_t salty_channel_disconnect_rx_t;
+
+/*
+ * The oneshot channel for closing the connection (sending end).
+ *
+ * On the Rust side, this is an `oneshot::Sender<CloseCode>`.
+ */
+typedef struct salty_channel_disconnect_tx_t salty_channel_disconnect_tx_t;
+
+/*
  * The channel for receiving incoming messages.
  *
- * On the Rust side, this is an `UnboundedReceiver<Message>`.
+ * On the Rust side, this is an `mpsc::UnboundedReceiver<Message>`.
  */
 typedef struct salty_channel_receiver_rx_t salty_channel_receiver_rx_t;
 
 /*
  * The channel for sending outgoing messages (receiving end).
  *
- * On the Rust side, this is an `UnboundedReceiver<Value>`.
+ * On the Rust side, this is an `mpsc::UnboundedReceiver<Value>`.
  */
 typedef struct salty_channel_sender_rx_t salty_channel_sender_rx_t;
 
 /*
  * The channel for sending outgoing messages (sending end).
  *
- * On the Rust side, this is an `UnboundedSender<Value>`.
+ * On the Rust side, this is an `mpsc::UnboundedSender<Value>`.
  */
 typedef struct salty_channel_sender_tx_t salty_channel_sender_tx_t;
 
@@ -252,7 +291,19 @@ typedef struct {
   const salty_channel_receiver_rx_t *receiver_rx;
   const salty_channel_sender_tx_t *sender_tx;
   const salty_channel_sender_rx_t *sender_rx;
+  const salty_channel_disconnect_tx_t *disconnect_tx;
+  const salty_channel_disconnect_rx_t *disconnect_rx;
 } salty_relayed_data_client_ret_t;
+
+/*
+ * Free a `salty_channel_disconnect_rx_t` instance.
+ */
+void salty_channel_disconnect_rx_free(const salty_channel_disconnect_rx_t *ptr);
+
+/*
+ * Free a `salty_channel_disconnect_tx_t` instance.
+ */
+void salty_channel_disconnect_tx_free(const salty_channel_disconnect_tx_t *ptr);
 
 /*
  * Free a `salty_channel_receiver_rx_t` instance.
@@ -288,6 +339,9 @@ void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
  *     sender_rx (`*salty_channel_sender_rx_t`, moved):
  *         The receiving end of the channel for outgoing messages.
  *         This object is returned when creating a client instance.
+ *     disconnect_rx (`*salty_channel_disconnect_rx_t`, moved):
+ *         The receiving end of the channel for closing the connection.
+ *         This object is returned when creating a client instance.
  *     timeout_s (`uint16_t`, copied):
  *         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
  *     ca_cert (`*uint8_t` or `NULL`, borrowed):
@@ -302,9 +356,23 @@ salty_client_connect_success_t salty_client_connect(const char *host,
                                                     const salty_client_t *client,
                                                     const salty_event_loop_t *event_loop,
                                                     const salty_channel_sender_rx_t *sender_rx,
+                                                    const salty_channel_disconnect_rx_t *disconnect_rx,
                                                     uint16_t timeout_s,
                                                     const uint8_t *ca_cert,
                                                     uint32_t ca_cert_len);
+
+/*
+ * Close the connection.
+ *
+ * Parameters:
+ *     disconnect_tx (`*salty_channel_disconnect_tx_t`, moved):
+ *         The sending end of the channel for closing the connection.
+ *         This object is returned when creating a client instance.
+ *     close_code (`uint16_t`, copied):
+ *         The close code according to the SaltyRTC protocol specification.
+ */
+salty_client_disconnect_success_t salty_client_disconnect(const salty_channel_disconnect_tx_t *disconnect_tx,
+                                                          uint16_t close_code);
 
 /*
  * Receive an event from the outgoing channel.

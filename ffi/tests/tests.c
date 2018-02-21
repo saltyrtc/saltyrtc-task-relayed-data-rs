@@ -18,13 +18,15 @@ void *connect_responder(void *threadarg);
 
 // Statics
 static sem_t auth_token_set;
-static sem_t initiator_channel_ready;
-static sem_t responder_channel_ready;
+static sem_t initiator_channels_ready;
+static sem_t responder_channels_ready;
 static uint8_t *auth_token = NULL;
 static const salty_channel_sender_tx_t *initiator_sender = NULL;
 static const salty_channel_sender_tx_t *responder_sender = NULL;
 static const salty_channel_receiver_rx_t *initiator_receiver = NULL;
 static const salty_channel_receiver_rx_t *responder_receiver = NULL;
+static const salty_channel_disconnect_tx_t *initiator_disconnect = NULL;
+static const salty_channel_disconnect_tx_t *responder_disconnect = NULL;
 
 /**
  * Struct used to pass data from the main thread to the client threads.
@@ -65,8 +67,9 @@ void *connect_initiator(void *threadarg) {
 
     initiator_sender = client_ret.sender_tx;
     initiator_receiver = client_ret.receiver_rx;
+    initiator_disconnect = client_ret.disconnect_tx;
     printf("    INITIATOR: Notifying main thread that the channels are ready\n");
-    sem_post(&initiator_channel_ready);
+    sem_post(&initiator_channels_ready);
 
     printf("    INITIATOR: Copying auth token to static variable\n");
     auth_token = malloc(32 * sizeof(uint8_t));
@@ -91,6 +94,8 @@ void *connect_initiator(void *threadarg) {
         loop,
         // Sender channel, receiving end
         client_ret.sender_rx,
+        // Disconnect channel, receiving end
+        client_ret.disconnect_rx,
         // Timeout seconds
         data->timeout_seconds,
         // CA certificate
@@ -116,6 +121,8 @@ void *connect_initiator(void *threadarg) {
     salty_channel_receiver_rx_free(client_ret.receiver_rx);
     salty_channel_sender_tx_free(client_ret.sender_tx);
     salty_channel_sender_rx_free(client_ret.sender_rx);
+    salty_channel_disconnect_tx_free(client_ret.disconnect_tx);
+    salty_channel_disconnect_rx_free(client_ret.disconnect_rx);
 
     printf("  INITIATOR: Freeing event loop\n");
     salty_event_loop_free(loop);
@@ -155,8 +162,9 @@ void *connect_responder(void *threadarg) {
 
     responder_sender = client_ret.sender_tx;
     responder_receiver = client_ret.receiver_rx;
+    responder_disconnect = client_ret.disconnect_tx;
     printf("    RESPONDER: Notifying main thread that the channels are ready\n");
-    sem_post(&responder_channel_ready);
+    sem_post(&responder_channels_ready);
 
     printf("    RESPONDER: Connecting\n");
     salty_client_connect_success_t connect_success = salty_client_connect(
@@ -169,6 +177,8 @@ void *connect_responder(void *threadarg) {
         loop,
         // Sender channel, receiving end
         client_ret.sender_rx,
+        // Disconnect channel, receiving end
+        client_ret.disconnect_rx,
         // Timeout seconds
         data->timeout_seconds,
         // CA certificate
@@ -191,6 +201,8 @@ void *connect_responder(void *threadarg) {
     salty_channel_receiver_rx_free(client_ret.receiver_rx);
     salty_channel_sender_tx_free(client_ret.sender_tx);
     salty_channel_sender_rx_free(client_ret.sender_rx);
+    salty_channel_disconnect_tx_free(client_ret.disconnect_tx);
+    salty_channel_disconnect_rx_free(client_ret.disconnect_rx);
 
     printf("  RESPONDER: Freeing event loop\n");
     salty_event_loop_free(loop);
@@ -254,7 +266,6 @@ int main() {
     if (!salty_log_change_level(LEVEL_WARN)) {
         return EXIT_FAILURE;
     }
-    salty_log_change_level(LEVEL_DEBUG);
 
     printf("  Creating key pairs\n");
     const salty_keypair_t *i_keypair = salty_keypair_new();
@@ -272,8 +283,8 @@ int main() {
 
     printf("  Initiating semaphores\n");
     sem_init(&auth_token_set, 0, 0);
-    sem_init(&initiator_channel_ready, 0, 0);
-    sem_init(&responder_channel_ready, 0, 0);
+    sem_init(&initiator_channels_ready, 0, 0);
+    sem_init(&responder_channels_ready, 0, 0);
 
     // Start initiator thread
     pthread_t i_thread;
@@ -301,9 +312,9 @@ int main() {
 
     // Waiting for connection event
     printf("  Waiting for initiator tx channel...\n");
-    sem_wait(&initiator_channel_ready);
+    sem_wait(&initiator_channels_ready);
     printf("  Waiting for responder tx channel...\n");
-    sem_wait(&responder_channel_ready);
+    sem_wait(&responder_channels_ready);
     printf("  Both outgoing channels are ready\n");
 
     // Send message
@@ -342,6 +353,12 @@ int main() {
             printf("  ERROR: Error while waiting for incoming message\n");
             return EXIT_FAILURE;
     }
+
+    // Disconnect
+    printf("  Disconnecting initiator\n");
+    salty_client_disconnect(initiator_disconnect, 1001);
+    printf("  Disconnecting responder\n");
+    salty_client_disconnect(responder_disconnect, 1001);
 
     // Joining client threads
     printf("  Waiting for client threads to terminate...\n");
@@ -382,8 +399,8 @@ int main() {
 
     printf("  Destroying semaphores\n");
     sem_destroy(&auth_token_set);
-    sem_destroy(&initiator_channel_ready);
-    sem_destroy(&responder_channel_ready);
+    sem_destroy(&initiator_channels_ready);
+    sem_destroy(&responder_channels_ready);
 
     printf("END C TEST\n");
 

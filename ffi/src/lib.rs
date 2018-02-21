@@ -29,6 +29,7 @@ extern crate saltyrtc_task_relayed_data;
 extern crate tokio_core;
 extern crate tokio_timer;
 
+mod connection;
 mod constants;
 mod nonblocking;
 pub mod saltyrtc_client_ffi;
@@ -44,11 +45,11 @@ use std::time::Duration;
 
 use libc::{uint8_t, uint16_t, uint32_t, uintptr_t, c_char};
 use rmp_serde as rmps;
-use saltyrtc_client::{SaltyClient, SaltyClientBuilder};
+use saltyrtc_client::{SaltyClient, SaltyClientBuilder, CloseCode};
 use saltyrtc_client::crypto::{KeyPair, PublicKey, AuthToken};
 use saltyrtc_client::dep::futures::{Future, Stream, Sink};
 use saltyrtc_client::dep::futures::future::Either;
-use saltyrtc_client::dep::futures::sync::mpsc;
+use saltyrtc_client::dep::futures::sync::{mpsc, oneshot};
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
 use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::dep::rmpv::decode::read_value;
@@ -58,6 +59,7 @@ use saltyrtc_task_relayed_data::{RelayedDataTask, Message};
 use tokio_core::reactor::{Core, Remote};
 use tokio_timer::Timer;
 
+use connection::Either3;
 pub use constants::*;
 
 
@@ -99,25 +101,39 @@ pub struct salty_relayed_data_client_ret_t {
     pub receiver_rx: *const salty_channel_receiver_rx_t,
     pub sender_tx: *const salty_channel_sender_tx_t,
     pub sender_rx: *const salty_channel_sender_rx_t,
+    pub disconnect_tx: *const salty_channel_disconnect_tx_t,
+    pub disconnect_rx: *const salty_channel_disconnect_rx_t,
 }
 
 /// The channel for receiving incoming messages.
 ///
-/// On the Rust side, this is an `UnboundedReceiver<Message>`.
+/// On the Rust side, this is an `mpsc::UnboundedReceiver<Message>`.
 #[no_mangle]
 pub enum salty_channel_receiver_rx_t {}
 
 /// The channel for sending outgoing messages (sending end).
 ///
-/// On the Rust side, this is an `UnboundedSender<Value>`.
+/// On the Rust side, this is an `mpsc::UnboundedSender<Value>`.
 #[no_mangle]
 pub enum salty_channel_sender_tx_t {}
 
 /// The channel for sending outgoing messages (receiving end).
 ///
-/// On the Rust side, this is an `UnboundedReceiver<Value>`.
+/// On the Rust side, this is an `mpsc::UnboundedReceiver<Value>`.
 #[no_mangle]
 pub enum salty_channel_sender_rx_t {}
+
+/// The oneshot channel for closing the connection (sending end).
+///
+/// On the Rust side, this is an `oneshot::Sender<CloseCode>`.
+#[no_mangle]
+pub enum salty_channel_disconnect_tx_t {}
+
+/// The oneshot channel for closing the connection (receiving end).
+///
+/// On the Rust side, this is an `oneshot::Receiver<CloseCode>`.
+#[no_mangle]
+pub enum salty_channel_disconnect_rx_t {}
 
 /// Result type with all potential connection error codes.
 ///
@@ -143,6 +159,26 @@ pub enum salty_client_connect_success_t {
 
     /// Another connection error
     CONNECT_ERROR = 9,
+}
+
+/// Result type with all potential disconnection error codes.
+///
+/// If no error happened, the value should be `DISCONNECT_OK` (0).
+#[repr(u8)]
+#[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
+pub enum salty_client_disconnect_success_t {
+    /// No error.
+    DISCONNECT_OK = 0,
+
+    /// One of the arguments was a `null` pointer.
+    DISCONNECT_NULL_ARGUMENT = 1,
+
+    /// Invalid close code
+    DISCONNECT_BAD_CLOSE_CODE = 2,
+
+    /// Another connection error
+    DISCONNECT_ERROR = 9,
 }
 
 /// Result type with all potential error codes.
@@ -247,6 +283,8 @@ fn make_client_create_error(reason: salty_relayed_data_success_t) -> salty_relay
         receiver_rx: ptr::null(),
         sender_tx: ptr::null(),
         sender_rx: ptr::null(),
+        disconnect_tx: ptr::null(),
+        disconnect_rx: ptr::null(),
     }
 }
 
@@ -264,6 +302,8 @@ struct ClientBuilderRet {
     receiver_rx: mpsc::UnboundedReceiver<Message>,
     sender_tx: mpsc::UnboundedSender<Value>,
     sender_rx: mpsc::UnboundedReceiver<Value>,
+    disconnect_tx: oneshot::Sender<CloseCode>,
+    disconnect_rx: oneshot::Receiver<CloseCode>,
 }
 
 /// Helper function to parse arguments and to create a new `SaltyClientBuilder`.
@@ -290,6 +330,7 @@ unsafe fn create_client_builder(
     // TODO: The sender should not be created here, it should be extracted from the task!
     let (receiver_tx, receiver_rx) = mpsc::unbounded();
     let (sender_tx, sender_rx) = mpsc::unbounded();
+    let (disconnect_tx, disconnect_rx) = oneshot::channel();
 
     // Instantiate task
     let task = RelayedDataTask::new(*remote, receiver_tx);
@@ -310,6 +351,8 @@ unsafe fn create_client_builder(
         receiver_rx,
         sender_tx,
         sender_rx,
+        disconnect_tx,
+        disconnect_rx,
     })
 }
 
@@ -356,6 +399,8 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
         receiver_rx: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_rx_t,
         sender_tx: Box::into_raw(Box::new(ret.sender_tx)) as *const salty_channel_sender_tx_t,
         sender_rx: Box::into_raw(Box::new(ret.sender_rx)) as *const salty_channel_sender_rx_t,
+        disconnect_tx: Box::into_raw(Box::new(ret.disconnect_tx)) as *const salty_channel_disconnect_tx_t,
+        disconnect_rx: Box::into_raw(Box::new(ret.disconnect_rx)) as *const salty_channel_disconnect_rx_t,
     }
 }
 
@@ -451,6 +496,8 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
         receiver_rx: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_rx_t,
         sender_tx: Box::into_raw(Box::new(ret.sender_tx)) as *const salty_channel_sender_tx_t,
         sender_rx: Box::into_raw(Box::new(ret.sender_rx)) as *const salty_channel_sender_rx_t,
+        disconnect_tx: Box::into_raw(Box::new(ret.disconnect_tx)) as *const salty_channel_disconnect_tx_t,
+        disconnect_rx: Box::into_raw(Box::new(ret.disconnect_rx)) as *const salty_channel_disconnect_rx_t,
     }
 }
 
@@ -542,6 +589,30 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Value>);
 }
 
+/// Free a `salty_channel_disconnect_tx_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_channel_disconnect_tx_free(
+    ptr: *const salty_channel_disconnect_tx_t,
+) {
+    if ptr.is_null() {
+        warn!("Tried to free a null pointer");
+        return;
+    }
+    Box::from_raw(ptr as *mut oneshot::Sender<CloseCode>);
+}
+
+/// Free a `salty_channel_disconnect_rx_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
+    ptr: *const salty_channel_disconnect_rx_t,
+) {
+    if ptr.is_null() {
+        warn!("Tried to free a null pointer");
+        return;
+    }
+    Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
+}
+
 
 // *** CONNECTION *** //
 
@@ -563,6 +634,9 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
 ///     sender_rx (`*salty_channel_sender_rx_t`, moved):
 ///         The receiving end of the channel for outgoing messages.
 ///         This object is returned when creating a client instance.
+///     disconnect_rx (`*salty_channel_disconnect_rx_t`, moved):
+///         The receiving end of the channel for closing the connection.
+///         This object is returned when creating a client instance.
 ///     timeout_s (`uint16_t`, copied):
 ///         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
 ///     ca_cert (`*uint8_t` or `NULL`, borrowed):
@@ -578,6 +652,7 @@ pub unsafe extern "C" fn salty_client_connect(
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
     sender_rx: *const salty_channel_sender_rx_t,
+    disconnect_rx: *const salty_channel_disconnect_rx_t,
     timeout_s: uint16_t,
     ca_cert: *const uint8_t,
     ca_cert_len: uint32_t,
@@ -597,6 +672,10 @@ pub unsafe extern "C" fn salty_client_connect(
     }
     if sender_rx.is_null() {
         warn!("Sender RX channel pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
+    if disconnect_rx.is_null() {
+        warn!("Disconnect RX channel pointer is null");
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
 
@@ -621,8 +700,9 @@ pub unsafe extern "C" fn salty_client_connect(
     // Get event loop reference
     let core = &mut *(event_loop as *mut Core) as &mut Core;
 
-    // Get channel sender instance
+    // Get channel sender instances
     let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<Value>);
+    let disconnect_rx_box = Box::from_raw(disconnect_rx as *mut oneshot::Receiver<CloseCode>);
 
     // Read CA certificate (if present)
     let ca_cert_opt: Option<Certificate> = if ca_cert.is_null() {
@@ -746,22 +826,33 @@ pub unsafe extern "C" fn salty_client_connect(
     );
 
     // Run task loop future to completion
-    match core.run(task_loop.select2(send_loop)) {
-        // Everything OK
-        Ok(_) => {
-            info!("Connection ended");
+    let connection = connection::new(*disconnect_rx_box, send_loop, task_loop);
+    match core.run(connection) {
+        // Disconnect requested
+        Ok(Either3::A(_)) => {
+            // TODO
             salty_client_connect_success_t::CONNECT_OK
         },
 
-        // Task loop failed
-        Err(Either::A((e, _))) => {
-            error!("Task loop error: {}", e);
+        // All OK
+        Ok(Either3::B(_)) |
+        Ok(Either3::C(_)) => {
+            info!("Connection ended (closed by ");
+            salty_client_connect_success_t::CONNECT_OK
+        }
+
+        Err(Either3::A(e)) => {
+            error!("Disconnect receiver error: {}", e);
             salty_client_connect_success_t::CONNECT_ERROR
         },
 
-        // Send loop failed
-        Err(Either::B(_)) => {
+        Err(Either3::B(_)) => {
             error!("Send loop error");
+            salty_client_connect_success_t::CONNECT_ERROR
+        },
+
+        Err(Either3::C(e)) => {
+            error!("Task loop error: {}", e);
             salty_client_connect_success_t::CONNECT_ERROR
         },
     }
@@ -963,11 +1054,49 @@ pub unsafe extern "C" fn salty_client_recv_event(
     }
 }
 
+/// Close the connection.
+///
+/// Parameters:
+///     disconnect_tx (`*salty_channel_disconnect_tx_t`, moved):
+///         The sending end of the channel for closing the connection.
+///         This object is returned when creating a client instance.
+///     close_code (`uint16_t`, copied):
+///         The close code according to the SaltyRTC protocol specification.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_disconnect(
+    disconnect_tx: *const salty_channel_disconnect_tx_t,
+    close_code: uint16_t, // TODO: Enum
+) -> salty_client_disconnect_success_t {
+    // Null pointer checks
+    if disconnect_tx.is_null() {
+        error!("Disconnect pointer is null");
+        return salty_client_disconnect_success_t::DISCONNECT_NULL_ARGUMENT;
+    }
+
+    let disconnect_tx_box = Box::from_raw(disconnect_tx as *mut oneshot::Sender<CloseCode>);
+    let code = match CloseCode::from_number(close_code) {
+        Some(code) => code,
+        None => {
+            // Forget about sender, to prevent freeing the memory.
+            mem::forget(disconnect_tx_box);
+            return salty_client_disconnect_success_t::DISCONNECT_BAD_CLOSE_CODE;
+        }
+    };
+    match (*disconnect_tx_box).send(code) {
+        Ok(_) => salty_client_disconnect_success_t::DISCONNECT_OK,
+        Err(_) => {
+            error!("Could not close connection");
+            salty_client_disconnect_success_t::DISCONNECT_ERROR
+        }
+    }
+
+}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use saltyrtc_client::CloseCode;
+    use saltyrtc_client_ffi::{salty_keypair_new, salty_event_loop_new, salty_event_loop_get_remote};
 
     #[test]
     fn test_send_bytes_sender_null_ptr() {
@@ -1132,7 +1261,7 @@ mod tests {
 
     #[test]
     fn test_recv_timeout_simple() {
-        let (tx, rx) = mpsc::unbounded::<Message>();
+        let (_tx, rx) = mpsc::unbounded::<Message>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         // Wait for max 500ms, but receive no data (timeout)
@@ -1144,6 +1273,19 @@ mod tests {
         unsafe {
             Box::from_raw(timeout_500ms_ptr as *mut u32);
             Box::from_raw(rx_ptr as *mut salty_channel_receiver_rx_t);
+        }
+    }
+
+    #[test]
+    fn test_free_channels() {
+        let keypair = salty_keypair_new();
+        let event_loop = salty_event_loop_new();
+        let remote = unsafe { salty_event_loop_get_remote(event_loop) };
+        let client_ret = unsafe { salty_relayed_data_initiator_new(keypair, remote, 0) };
+        unsafe {
+            salty_channel_receiver_rx_free(client_ret.receiver_rx);
+            salty_channel_sender_tx_free(client_ret.sender_tx);
+            salty_channel_sender_rx_free(client_ret.sender_rx);
         }
     }
 
