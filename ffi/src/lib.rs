@@ -1054,6 +1054,24 @@ pub unsafe extern "C" fn salty_client_recv_event(
     }
 }
 
+/// Free an event loop instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_recv_ret_free(recv_ret: salty_client_recv_ret_t) {
+    if recv_ret.event.is_null() {
+        debug!("salty_client_event_free: Event is already null");
+        return;
+    }
+    let event = Box::from_raw(recv_ret.event as *mut salty_event_t);
+    if !event.msg_bytes.is_null() {
+        Vec::from_raw_parts(
+            event.msg_bytes as *mut u8,
+            event.msg_bytes_len,
+            event.msg_bytes_len,
+        );
+    }
+}
+
+
 /// Close the connection.
 ///
 /// Parameters:

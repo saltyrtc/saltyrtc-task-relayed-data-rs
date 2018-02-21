@@ -347,6 +347,8 @@ int main() {
             printf("  ERROR: Error while waiting for incoming message\n");
             return EXIT_FAILURE;
     }
+    printf("  Freeing received event\n");
+    salty_client_recv_ret_free(recv_ret);
 
     // Disconnect
     printf("  Disconnecting initiator\n");

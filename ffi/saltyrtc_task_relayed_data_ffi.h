@@ -391,6 +391,11 @@ salty_client_recv_ret_t salty_client_recv_event(const salty_channel_receiver_rx_
                                                 const uint32_t *timeout_ms);
 
 /*
+ * Free an event loop instance.
+ */
+void salty_client_recv_ret_free(salty_client_recv_ret_t recv_ret);
+
+/*
  * Send a message through the outgoing channel.
  *
  * Parameters:
