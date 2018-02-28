@@ -11,8 +11,12 @@ saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs.git", 
 tokio-core = "0.1"
 
 [dev-dependencies]
+byteorder = "1.2"
+data-encoding = "2.1"
 env_logger = "0.5"
 tokio-timer = "0.1"
+clap = "2.30"
+qrcodegen = "1.2"
 
 [features]
 msgpack-debugging = ["saltyrtc-client/msgpack-debugging"]

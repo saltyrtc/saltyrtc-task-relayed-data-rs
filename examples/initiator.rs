@@ -1,0 +1,249 @@
+extern crate byteorder;
+extern crate clap;
+extern crate data_encoding;
+extern crate env_logger;
+#[macro_use] extern crate log;
+extern crate qrcodegen;
+extern crate saltyrtc_client;
+extern crate saltyrtc_task_relayed_data;
+extern crate tokio_core;
+
+use std::cell::RefCell;
+use std::env;
+use std::io::Write;
+use std::rc::Rc;
+use std::time::Duration;
+
+use byteorder::{BigEndian, WriteBytesExt};
+use clap::{Arg, App};
+use data_encoding::{HEXLOWER, HEXLOWER_PERMISSIVE, BASE64};
+use qrcodegen::{QrCode, QrCodeEcc};
+use saltyrtc_client::{SaltyClient, BoxedFuture};
+use saltyrtc_client::crypto::KeyPair;
+use saltyrtc_client::dep::futures::{future, Future, Stream};
+use saltyrtc_client::dep::futures::sync::mpsc;
+use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol};
+use saltyrtc_client::tasks::Task;
+use saltyrtc_task_relayed_data::{RelayedDataTask, RelayedDataError, Message};
+use tokio_core::reactor::Core;
+
+const ARG_PING_INTERVAL: &'static str = "ping_interval";
+const ARG_SRV_HOST: &'static str = "host";
+const ARG_SRV_PORT: &'static str = "port";
+const ARG_SRV_PUBKEY: &'static str = "pubkey";
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+/// Wrap future in a box with type erasure.
+macro_rules! boxed {
+    ($future:expr) => {{
+        Box::new($future) as BoxedFuture<_, _>
+    }}
+}
+
+/// Create the QR code payload
+fn make_qrcode_payload(version: u16, permanent: bool, host: &str, port: u16, pubkey: &[u8], auth_token: &[u8], server_pubkey: &[u8]) -> Vec<u8> {
+    let mut data: Vec<u8> = Vec::with_capacity(101 + host.as_bytes().len());
+
+    data.write_u16::<BigEndian>(version).unwrap();
+    data.push(if permanent { 0x02 } else { 0x00 });
+    data.write_all(&pubkey).unwrap();
+    data.write_all(&auth_token).unwrap();
+    data.write_all(&server_pubkey).unwrap();
+    data.write_u16::<BigEndian>(port).unwrap();
+    data.write_all(host.as_bytes()).unwrap();
+
+    data
+}
+
+/// Print the QR code payload to the terminal
+fn print_qrcode(payload: &[u8]) {
+    let base64 = BASE64.encode(&payload);
+    let qr = QrCode::encode_text(&base64, QrCodeEcc::Low).unwrap();
+    let border = 1;
+    for y in -border .. qr.size() + border {
+        for x in -border .. qr.size() + border {
+            let c: char = if qr.get_module(x, y) { '█' } else { ' ' };
+            print!("{0}{0}", c);
+        }
+        println!();
+    }
+    println!();
+}
+
+fn main() {
+
+    // Set up CLI arguments
+    let app = App::new("SaltyRTC Relayed Data Test Initiator")
+        .arg(Arg::with_name(ARG_PING_INTERVAL)
+            .short("i")
+            .takes_value(true)
+            .value_name("SECONDS")
+            .required(false)
+            .default_value("60")
+            .help("The WebSocket ping interval (set to 0 to disable pings)"))
+        .arg(Arg::with_name(ARG_SRV_HOST)
+            .short("h")
+            .takes_value(true)
+            .value_name("HOST")
+            .required(true)
+            .default_value("server.saltyrtc.org")
+            .help("The SaltyRTC server hostname"))
+        .arg(Arg::with_name(ARG_SRV_PORT)
+            .short("p")
+            .takes_value(true)
+            .value_name("PORT")
+            .required(true)
+            .default_value("9287")
+            .help("The SaltyRTC server port"))
+        .arg(Arg::with_name(ARG_SRV_PUBKEY)
+            .short("k")
+            .takes_value(true)
+            .value_name("PUBKEY")
+            .required(true)
+            .default_value("f77fe623b6977d470ac8c7bf7011c4ad08a1d126896795db9d2b4b7a49ae1045")
+            .help("The SaltyRTC server public permanent key"))
+        .version(VERSION)
+        .author("Danilo Bargen <mail@dbrgn.ch>")
+        .about("Test client for SaltyRTC Relayed Data Task.");
+
+    // Parse arguments
+    let args = app.get_matches();
+
+    // Set up logging
+    env::set_var("RUST_LOG", "saltyrtc_client=debug,saltyrtc_task_relayed_data=debug,initiator=trace");
+    env_logger::init();
+
+    // Tokio reactor core
+    let mut core = Core::new().unwrap();
+
+    // Create TLS connector instance
+    let mut tls_builder = TlsConnector::builder()
+        .unwrap_or_else(|e| panic!("Could not initialize TlsConnector builder: {}", e));
+    tls_builder.supported_protocols(&[Protocol::Tlsv12, Protocol::Tlsv11, Protocol::Tlsv10])
+        .unwrap_or_else(|e| panic!("Could not set TLS protocols: {}", e));
+    let tls_connector = tls_builder.build()
+        .unwrap_or_else(|e| panic!("Could not initialize TlsConnector: {}", e));
+
+    // Create new public permanent keypair
+    let keypair = KeyPair::new();
+    let pubkey = keypair.public_key().clone();
+
+    // Determine ping interval
+    let ping_interval = {
+        let seconds: u64 = args.value_of(ARG_PING_INTERVAL).expect("Ping interval not supplied")
+                               .parse().expect("Could not parse interval seconds to a number");
+        Duration::from_secs(seconds)
+    };
+
+    // Determine server info
+    let server_host: &str = args.value_of(ARG_SRV_HOST).expect("Server hostname not supplied");
+    let server_port: u16 = args.value_of(ARG_SRV_PORT).expect("Server port not supplied").parse().expect("Could not parse port to a number");
+    let server_pubkey: Vec<u8> = HEXLOWER_PERMISSIVE.decode(
+        args.value_of(ARG_SRV_PUBKEY).expect("Server pubkey not supplied").as_bytes()
+    ).unwrap();
+
+    // Set up task instance
+    let (incoming_tx, incoming_rx) = mpsc::unbounded();
+    let task = RelayedDataTask::new(core.remote(), incoming_tx);
+
+    // Set up client instance
+    let client = Rc::new(RefCell::new(
+        SaltyClient::build(keypair)
+            .add_task(Box::new(task))
+            .with_ping_interval(Some(ping_interval))
+            .initiator()
+            .expect("Could not create SaltyClient instance")
+    ));
+
+    // Connect future
+    let connect_future = saltyrtc_client::connect(
+        server_host,
+        server_port,
+        Some(tls_connector),
+        &core.handle(),
+        client.clone(),
+    )
+    .unwrap()
+    .and_then(|ws_client| saltyrtc_client::do_handshake(ws_client, client.clone(), None));
+
+    // Determine QR code payload
+    let payload = make_qrcode_payload(
+        1,
+        false,
+        &server_host,
+        server_port,
+        &pubkey.0,
+        client.borrow().auth_token().unwrap().secret_key_bytes(),
+        &server_pubkey,
+    );
+
+    // Print connection info
+    println!("\n#====================#");
+    println!("Host: {}:{}", server_host, server_port);
+    println!("Pubkey: {}", HEXLOWER.encode(&pubkey.0));
+    println!();
+    println!("QR Code:");
+    print_qrcode(&payload);
+    println!("{}", BASE64.encode(&payload));
+    println!("\n#====================#\n");
+
+    // Run connect future to completion
+    let ws_client = core.run(connect_future).expect("Could not connect");
+
+    // Setup task loop
+    let (task, task_loop) = saltyrtc_client::task_loop(ws_client, client.clone()).unwrap();
+
+    // Get access to outgoing channel
+    let _outgoing_tx = {
+        // Get reference to task and downcast it to `RelayedDataTask`.
+        // We can be sure that it's a `RelayedDataTask` since that's the only one we proposed.
+        let mut t = task.lock().expect("Could not lock task mutex");
+        let rd_task: &mut RelayedDataTask = (&mut **t as &mut Task)
+            .downcast_mut::<RelayedDataTask>()
+            .expect("Chosen task is not a RelayedDataTask");
+
+        // Get unbounded senders for outgoing messages
+        rd_task.get_sender().unwrap()
+    };
+
+    // Print all incoming messages to stdout
+    let recv_loop = incoming_rx
+        .map_err(|_| Err(RelayedDataError::Channel(("Could not read from rx_responder").into())))
+        .for_each(move |msg: Message| match msg {
+            Message::Data(data) => {
+                println!("Incoming data message: {}", data);
+                boxed!(future::ok(()))
+            },
+            Message::Disconnect(reason) => {
+                println!("Connection was closed: {}", reason);
+                boxed!(future::err(Ok(())))
+            }
+        })
+        .or_else(|e| e)
+        .then(|f| { debug!("† recv_loop done"); f });
+
+    match core.run(
+        task_loop
+            .map_err(|e| e.to_string())
+            .then(|f| { debug!("† task_loop done"); f })
+            .join(recv_loop.map_err(|e| e.to_string()))
+    ) {
+        Ok(_) => info!("Done."),
+        Err(e) => panic!("Error: {}", e),
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_make_qrcode_data() {
+        let pubkey = HEXLOWER.decode(b"4242424242424242424242424242424242424242424242424242424242424242").unwrap();
+        let auth_token = HEXLOWER.decode(b"2323232323232323232323232323232323232323232323232323232323232323").unwrap();
+        let server_pubkey = HEXLOWER.decode(b"1337133713371337133713371337133713371337133713371337133713371337").unwrap();
+        let data = make_qrcode_payload(1337, true, "saltyrtc.example.org", 1234, &pubkey, &auth_token, &server_pubkey);
+        let expected = BASE64.decode(b"BTkCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIxM3EzcTNxM3EzcTNxM3EzcTNxM3EzcTNxM3EzcTNxM3BNJzYWx0eXJ0Yy5leGFtcGxlLm9yZw==").unwrap();
+        assert_eq!(data, expected);
+    }
+}
