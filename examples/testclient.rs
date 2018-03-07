@@ -11,15 +11,16 @@ extern crate tokio_core;
 use std::cell::RefCell;
 use std::env;
 use std::io::Write;
+use std::process;
 use std::rc::Rc;
 use std::time::Duration;
 
 use byteorder::{BigEndian, WriteBytesExt};
-use clap::{Arg, App};
+use clap::{Arg, App, SubCommand};
 use data_encoding::{HEXLOWER, HEXLOWER_PERMISSIVE, BASE64};
 use qrcodegen::{QrCode, QrCodeEcc};
-use saltyrtc_client::{SaltyClient, BoxedFuture};
-use saltyrtc_client::crypto::KeyPair;
+use saltyrtc_client::{SaltyClient, Role, BoxedFuture};
+use saltyrtc_client::crypto::{KeyPair, AuthToken, public_key_from_hex_str};
 use saltyrtc_client::dep::futures::{future, Future, Stream};
 use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol};
@@ -31,6 +32,8 @@ const ARG_PING_INTERVAL: &'static str = "ping_interval";
 const ARG_SRV_HOST: &'static str = "host";
 const ARG_SRV_PORT: &'static str = "port";
 const ARG_SRV_PUBKEY: &'static str = "pubkey";
+const ARG_PATH: &'static str = "path";
+const ARG_AUTHTOKEN: &'static str = "auth_token";
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 /// Wrap future in a box with type erasure.
@@ -73,44 +76,85 @@ fn print_qrcode(payload: &[u8]) {
 fn main() {
 
     // Set up CLI arguments
+    let arg_srv_host = Arg::with_name(ARG_SRV_HOST)
+        .short("h")
+        .takes_value(true)
+        .value_name("SRV_HOST")
+        .required(true)
+        .default_value("server.saltyrtc.org")
+        .help("The SaltyRTC server hostname");
+    let arg_srv_port = Arg::with_name(ARG_SRV_PORT)
+        .short("p")
+        .takes_value(true)
+        .value_name("SRV_PORT")
+        .required(true)
+        .default_value("9287")
+        .help("The SaltyRTC server port");
+    let arg_srv_pubkey = Arg::with_name(ARG_SRV_PUBKEY)
+        .short("s")
+        .takes_value(true)
+        .value_name("SRV_PUBKEY")
+        .required(true)
+        .default_value("f77fe623b6977d470ac8c7bf7011c4ad08a1d126896795db9d2b4b7a49ae1045")
+        .help("The SaltyRTC server public permanent key");
+    let arg_ping_interval = Arg::with_name(ARG_PING_INTERVAL)
+        .short("i")
+        .takes_value(true)
+        .value_name("SECONDS")
+        .required(false)
+        .default_value("60")
+        .help("The WebSocket ping interval (set to 0 to disable pings)");
     let app = App::new("SaltyRTC Relayed Data Test Initiator")
-        .arg(Arg::with_name(ARG_PING_INTERVAL)
-            .short("i")
-            .takes_value(true)
-            .value_name("SECONDS")
-            .required(false)
-            .default_value("60")
-            .help("The WebSocket ping interval (set to 0 to disable pings)"))
-        .arg(Arg::with_name(ARG_SRV_HOST)
-            .short("h")
-            .takes_value(true)
-            .value_name("HOST")
-            .required(true)
-            .default_value("server.saltyrtc.org")
-            .help("The SaltyRTC server hostname"))
-        .arg(Arg::with_name(ARG_SRV_PORT)
-            .short("p")
-            .takes_value(true)
-            .value_name("PORT")
-            .required(true)
-            .default_value("9287")
-            .help("The SaltyRTC server port"))
-        .arg(Arg::with_name(ARG_SRV_PUBKEY)
-            .short("k")
-            .takes_value(true)
-            .value_name("PUBKEY")
-            .required(true)
-            .default_value("f77fe623b6977d470ac8c7bf7011c4ad08a1d126896795db9d2b4b7a49ae1045")
-            .help("The SaltyRTC server public permanent key"))
         .version(VERSION)
         .author("Danilo Bargen <mail@dbrgn.ch>")
-        .about("Test client for SaltyRTC Relayed Data Task.");
+        .about("Test client for SaltyRTC Relayed Data Task.")
+        .subcommand(SubCommand::with_name("initiator")
+            .about("Start client as initiator")
+            .arg(arg_srv_host.clone())
+            .arg(arg_srv_port.clone())
+            .arg(arg_srv_pubkey.clone())
+            .arg(arg_ping_interval.clone()))
+        .subcommand(SubCommand::with_name("responder")
+            .about("Start client as responder")
+            .arg(Arg::with_name(ARG_PATH)
+                .short("k")
+                .takes_value(true)
+                .value_name("INITIATOR_PUBKEY")
+                .required(true)
+                .help("The hex encoded public key of the initiator"))
+            .arg(Arg::with_name(ARG_AUTHTOKEN)
+                .short("a")
+                .alias("token")
+                .alias("authtoken")
+                .takes_value(true)
+                .value_name("AUTHTOKEN")
+                .required(true)
+                .help("The auth token (hex encoded)"))
+            .arg(arg_srv_host)
+            .arg(arg_srv_port)
+            .arg(arg_srv_pubkey)
+            .arg(arg_ping_interval));
 
     // Parse arguments
-    let args = app.get_matches();
+    let subcommand = app.get_matches().subcommand.unwrap_or_else(|| {
+        println!("Missing subcommand.");
+        println!("Use -h or --help to see usage.");
+        process::exit(1);
+    });
+    let args = &subcommand.matches;
+
+    // Determine role
+    let role = match &*subcommand.name {
+        "initiator" => Role::Initiator,
+        "responder" => Role::Responder,
+        other => {
+            println!("Invalid subcommand: {}", other);
+            process::exit(1);
+        },
+    };
 
     // Set up logging
-    env::set_var("RUST_LOG", "saltyrtc_client=debug,saltyrtc_task_relayed_data=debug,initiator=trace");
+    env::set_var("RUST_LOG", "saltyrtc_client=debug,saltyrtc_task_relayed_data=debug,testclient=trace");
     env_logger::init();
 
     // Tokio reactor core
@@ -127,6 +171,12 @@ fn main() {
     // Create new public permanent keypair
     let keypair = KeyPair::new();
     let pubkey = keypair.public_key().clone();
+
+    // Determine websocket path
+    let path: String = match role {
+        Role::Initiator => keypair.public_key_hex(),
+        Role::Responder => args.value_of(ARG_PATH).expect("Initiator pubkey not supplied").to_lowercase(),
+    };
 
     // Determine ping interval
     let ping_interval = {
@@ -147,13 +197,24 @@ fn main() {
     let task = RelayedDataTask::new(core.remote(), incoming_tx);
 
     // Set up client instance
-    let client = Rc::new(RefCell::new(
-        SaltyClient::build(keypair)
+    let client = Rc::new(RefCell::new({
+        let builder = SaltyClient::build(keypair)
             .add_task(Box::new(task))
-            .with_ping_interval(Some(ping_interval))
-            .initiator()
-            .expect("Could not create SaltyClient instance")
-    ));
+            .with_ping_interval(Some(ping_interval));
+        match role {
+            Role::Initiator => builder
+                .initiator()
+                .expect("Could not create SaltyClient instance"),
+            Role::Responder => {
+                let auth_token_hex = args.value_of(ARG_AUTHTOKEN).expect("Auth token not supplied").to_string();
+                let auth_token = AuthToken::from_hex_str(&auth_token_hex).expect("Invalid auth token hex string");
+                let initiator_pubkey = public_key_from_hex_str(&path).unwrap();
+                builder
+                    .responder(initiator_pubkey, Some(auth_token))
+                    .expect("Could not create SaltyClient instance")
+            }
+        }
+    }));
 
     // Connect future
     let connect_future = saltyrtc_client::connect(
@@ -180,12 +241,20 @@ fn main() {
     // Print connection info
     println!("\n#====================#");
     println!("Host: {}:{}", server_host, server_port);
-    println!("Pubkey: {}", HEXLOWER.encode(&pubkey.0));
-    println!();
-    println!("QR Code:");
-    print_qrcode(&payload);
-    println!("{}", BASE64.encode(&payload));
-    println!("\n#====================#\n");
+    match role {
+        Role::Initiator => {
+            println!("Pubkey: {}", HEXLOWER.encode(&pubkey.0));
+            println!();
+            println!("QR Code:");
+            print_qrcode(&payload);
+            println!("{}", BASE64.encode(&payload));
+            println!("\n#====================#\n");
+        }
+        Role::Responder => {
+            println!("Pubkey: {}", args.value_of(ARG_AUTHTOKEN).expect("Auth token not supplied").to_string());
+            println!("#====================#\n");
+        }
+    }
 
     // Run connect future to completion
     let ws_client = core.run(connect_future).expect("Could not connect");
