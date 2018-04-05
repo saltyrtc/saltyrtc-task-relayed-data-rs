@@ -246,3 +246,9 @@ impl Task for RelayedDataTask {
         let _ = disconnect_tx.send(Some(reason));
     }
 }
+
+impl Drop for RelayedDataTask {
+    fn drop(&mut self) {
+        trace!("Dropping RelayedDataTask");
+    }
+}
