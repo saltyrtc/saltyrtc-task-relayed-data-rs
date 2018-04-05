@@ -1074,8 +1074,16 @@ pub unsafe extern "C" fn salty_client_recv_ret_free(recv_ret: salty_client_recv_
 
 /// Close the connection.
 ///
+/// Depending on whether this succeeds or not, the `disconnect_tx` instance is
+/// freed or not:
+///
+/// - DISCONNECT_OK: The `disconnect_tx` instance was freed
+/// - DISCONNECT_NULL_ARGUMENT: The `disconnect_tx` instance was not freed
+/// - DISCONNECT_BAD_CLOSE_CODE: The `disconnect_tx` instance was not freed
+/// - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
+///
 /// Parameters:
-///     disconnect_tx (`*salty_channel_disconnect_tx_t`, moved):
+///     disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):
 ///         The sending end of the channel for closing the connection.
 ///         This object is returned when creating a client instance.
 ///     close_code (`uint16_t`, copied):
