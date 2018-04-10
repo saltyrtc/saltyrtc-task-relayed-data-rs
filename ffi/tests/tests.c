@@ -275,6 +275,14 @@ int main() {
     }
     memset(private_key_ptr, 42, 32);
     const salty_keypair_t *restored_keypair = salty_keypair_restore(private_key_ptr);
+
+    printf("  Extracting private key of existing keypair\n");
+    const uint8_t *extracted_private_key = salty_keypair_private_key(restored_keypair);
+    if (memcmp(private_key_ptr, extracted_private_key, 32) != 0) {
+        printf("    ERROR: Extracted private key does not match original private key\n");
+        free(private_key_ptr);
+        return EXIT_FAILURE;
+    }
     free(private_key_ptr);
 
     printf("  Copying public key from initiator\n");

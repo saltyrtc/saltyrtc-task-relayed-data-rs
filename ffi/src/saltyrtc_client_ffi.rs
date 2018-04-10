@@ -240,6 +240,8 @@ pub unsafe extern "C" fn salty_keypair_restore(ptr: *const uint8_t) -> *const sa
 /// Returns:
 ///     A null pointer if the parameter is null.
 ///     Pointer to a 32 byte `uint8_t` array otherwise.
+///     Note that the lifetime of the returned pointer is tied to the keypair.
+///     If the keypair is freed, this pointer is invalidated.
 #[no_mangle]
 pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -> *const uint8_t {
     if ptr.is_null() {
@@ -249,6 +251,24 @@ pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -
     let keypair = &*(ptr as *const KeyPair) as &KeyPair;
     let pubkey_bytes: &[u8; 32] = &(keypair.public_key().0);
     pubkey_bytes.as_ptr()
+}
+
+/// Get the private key from a `salty_keypair_t` instance.
+///
+/// Returns:
+///     A null pointer if the parameter is null.
+///     Pointer to a 32 byte `uint8_t` array otherwise.
+///     Note that the lifetime of the returned pointer is tied to the keypair.
+///     If the keypair is freed, this pointer is invalidated.
+#[no_mangle]
+pub unsafe extern "C" fn salty_keypair_private_key(ptr: *const salty_keypair_t) -> *const uint8_t {
+    if ptr.is_null() {
+        error!("Tried to dereference a null pointer");
+        return ptr::null();
+    }
+    let keypair = &*(ptr as *const KeyPair) as &KeyPair;
+    let privkey_bytes: &[u8; 32] = &(keypair.private_key().0);
+    privkey_bytes.as_ptr()
 }
 
 /// Free a `KeyPair` instance.

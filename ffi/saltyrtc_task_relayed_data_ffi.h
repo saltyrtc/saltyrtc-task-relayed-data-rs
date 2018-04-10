@@ -476,11 +476,24 @@ void salty_keypair_free(const salty_keypair_t *ptr);
 const salty_keypair_t *salty_keypair_new(void);
 
 /*
+ * Get the private key from a `salty_keypair_t` instance.
+ *
+ * Returns:
+ *     A null pointer if the parameter is null.
+ *     Pointer to a 32 byte `uint8_t` array otherwise.
+ *     Note that the lifetime of the returned pointer is tied to the keypair.
+ *     If the keypair is freed, this pointer is invalidated.
+ */
+const uint8_t *salty_keypair_private_key(const salty_keypair_t *ptr);
+
+/*
  * Get the public key from a `salty_keypair_t` instance.
  *
  * Returns:
  *     A null pointer if the parameter is null.
  *     Pointer to a 32 byte `uint8_t` array otherwise.
+ *     Note that the lifetime of the returned pointer is tied to the keypair.
+ *     If the keypair is freed, this pointer is invalidated.
  */
 const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
 
