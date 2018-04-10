@@ -213,7 +213,7 @@ pub extern "C" fn salty_keypair_new() -> *const salty_keypair_t {
 #[no_mangle]
 pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -> *const uint8_t {
     if ptr.is_null() {
-        warn!("Tried to dereference a null pointer");
+        error!("Tried to dereference a null pointer");
         return ptr::null();
     }
     let keypair = &*(ptr as *const KeyPair) as &KeyPair;

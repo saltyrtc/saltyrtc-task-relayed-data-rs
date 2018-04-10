@@ -58,7 +58,8 @@ void *connect_initiator(void *threadarg) {
     salty_relayed_data_client_ret_t client_ret = salty_relayed_data_initiator_new(
         data->keypair,
         remote,
-        data->interval_seconds
+        data->interval_seconds,
+        NULL
     );
     if (client_ret.success != OK) {
         printf("    INITIATOR ERROR: Could not create client: %d", client_ret.success);

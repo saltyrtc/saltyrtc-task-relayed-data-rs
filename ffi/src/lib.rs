@@ -86,6 +86,9 @@ pub enum salty_relayed_data_success_t {
 
     /// The auth token bytes are not valid.
     AUTH_TOKEN_INVALID = 4,
+
+    /// The trusted key bytes are not valid.
+    TRUSTED_KEY_INVALID = 5,
 }
 
 /// The return value when creating a new client instance.
@@ -342,7 +345,7 @@ unsafe fn create_client_builder(
     };
 
     // Create builder instance
-    let builder = SaltyClientBuilder::new(*keypair)
+    let builder = SaltyClient::build(*keypair)
         .add_task(Box::new(task) as BoxedTask)
         .with_ping_interval(interval);
 
@@ -369,6 +372,9 @@ unsafe fn create_client_builder(
 ///     ping_interval_seconds (`uint32_t`, copied):
 ///         Request that the server sends a WebSocket ping message at the specified interval.
 ///         Set this argument to `0` to disable ping messages.
+///     trusted_responder_key (`*uint8_t` or `null`, borrowed):
+///         The trusted responder public key. If set, this must be a pointer to a 32 byte
+///         `uint8_t` array. Set this to null when not restoring a trusted session.
 /// Returns:
 ///     A `salty_relayed_data_client_ret_t` struct.
 #[no_mangle]
@@ -376,6 +382,7 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     keypair: *const salty_keypair_t,
     remote: *const salty_remote_t,
     ping_interval_seconds: uint32_t,
+    trusted_responder_key: *const uint8_t,
 ) -> salty_relayed_data_client_ret_t {
     // Parse arguments and create SaltyRTC builder
     let ret = match create_client_builder(keypair, remote, ping_interval_seconds) {
@@ -383,8 +390,34 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
         Err(reason) => return make_client_create_error(reason),
     };
 
+    // Parse trusted responder key
+    let trusted_key_opt = if trusted_responder_key.is_null() {
+        None
+    } else {
+        // Get slice
+        let trusted_key_slice: &[u8] = slice::from_raw_parts(trusted_responder_key, 32);
+
+        // Just to rule out stupid mistakes, make sure that the public key is not all-zero
+        if trusted_key_slice.iter().all(|&x| x == 0) {
+            error!("Trusted key bytes are all zero!");
+            return make_client_create_error(salty_relayed_data_success_t::TRUSTED_KEY_INVALID);
+        }
+
+        // Parse
+        match PublicKey::from_slice(trusted_key_slice) {
+            Some(key) => Some(key),
+            None => {
+                error!("Could not parse trusted key bytes");
+                return make_client_create_error(salty_relayed_data_success_t::TRUSTED_KEY_INVALID);
+            }
+        }
+    };
+
     // Create client instance
-    let client_res = ret.builder.initiator();
+    let client_res = match trusted_key_opt {
+        Some(key) => ret.builder.initiator_trusted(key),
+        None => ret.builder.initiator(),
+    };
     let client = match client_res {
         Ok(client) => client,
         Err(e) => {
@@ -417,8 +450,8 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 ///     initiator_pubkey (`*uint8_t`, borrowed):
 ///         Public key of the initiator. A 32 byte `uint8_t` array.
 ///     auth_token (`*uint8_t` or `null`, borrowed):
-///         One-time auth token from the initiator. If set, this must be a 32 byte `uint8_t` array.
-///         Set this to `null` when restoring a trusted session.
+///         One-time auth token from the initiator. If set, this must be a pointer
+///         to a 32 byte `uint8_t` array. Set this to `null` when restoring a trusted session.
 /// Returns:
 ///     A `salty_relayed_data_client_ret_t` struct.
 #[no_mangle]
@@ -481,7 +514,12 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
     };
 
     // Create client instance
-    let client_res = ret.builder.responder(pubkey, auth_token_opt);
+    let client_res = match auth_token_opt {
+        // An auth token was set. Initiate a new session.
+        Some(token) => ret.builder.responder(pubkey, token),
+        // No auth token was set. Restore trusted session.
+        None => ret.builder.responder_trusted(pubkey),
+    };
     let client = match client_res {
         Ok(client) => client,
         Err(e) => {
@@ -515,7 +553,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
     ptr: *const salty_client_t,
 ) -> *const uint8_t {
     if ptr.is_null() {
-        warn!("Tried to dereference a null pointer");
+        error!("Tried to dereference a null pointer");
         return ptr::null();
     }
 
@@ -671,11 +709,11 @@ pub unsafe extern "C" fn salty_client_connect(
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
     if sender_rx.is_null() {
-        warn!("Sender RX channel pointer is null");
+        error!("Sender RX channel pointer is null");
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
     if disconnect_rx.is_null() {
-        warn!("Disconnect RX channel pointer is null");
+        error!("Disconnect RX channel pointer is null");
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
 
@@ -1307,12 +1345,52 @@ mod tests {
         let keypair = salty_keypair_new();
         let event_loop = salty_event_loop_new();
         let remote = unsafe { salty_event_loop_get_remote(event_loop) };
-        let client_ret = unsafe { salty_relayed_data_initiator_new(keypair, remote, 0) };
+        let client_ret = unsafe { salty_relayed_data_initiator_new(keypair, remote, 0, ptr::null()) };
         unsafe {
             salty_channel_receiver_rx_free(client_ret.receiver_rx);
             salty_channel_sender_tx_free(client_ret.sender_tx);
             salty_channel_sender_rx_free(client_ret.sender_rx);
         }
+    }
+
+    /// Using zero bytes as trusted key should fail.
+    #[test]
+    fn test_initiator_trusted_key_validation() {
+        let keypair = salty_keypair_new();
+        let event_loop = salty_event_loop_new();
+        let remote = unsafe { salty_event_loop_get_remote(event_loop) };
+        let zero_bytes = [0; 32];
+        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const uint8_t;
+        let client_ret = unsafe { salty_relayed_data_initiator_new(keypair, remote, 0, zero_bytes_ptr) };
+        assert_eq!(client_ret.success, salty_relayed_data_success_t::TRUSTED_KEY_INVALID);
+    }
+
+    /// Using zero bytes as public key should fail.
+    #[test]
+    fn test_responder_public_key_validation() {
+        let keypair = salty_keypair_new();
+        let event_loop = salty_event_loop_new();
+        let remote = unsafe { salty_event_loop_get_remote(event_loop) };
+        let nonzero_bytes = [1; 32];
+        let nonzero_bytes_ptr = Box::into_raw(Box::new(nonzero_bytes)) as *const uint8_t;
+        let zero_bytes = [0; 32];
+        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const uint8_t;
+        let client_ret = unsafe { salty_relayed_data_responder_new(keypair, remote, 0, zero_bytes_ptr, nonzero_bytes_ptr) };
+        assert_eq!(client_ret.success, salty_relayed_data_success_t::PUBKEY_INVALID);
+    }
+
+    /// Using zero bytes as auth token should fail.
+    #[test]
+    fn test_responder_auth_token_validation() {
+        let keypair = salty_keypair_new();
+        let event_loop = salty_event_loop_new();
+        let remote = unsafe { salty_event_loop_get_remote(event_loop) };
+        let nonzero_bytes = [1; 32];
+        let nonzero_bytes_ptr = Box::into_raw(Box::new(nonzero_bytes)) as *const uint8_t;
+        let zero_bytes = [0; 32];
+        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const uint8_t;
+        let client_ret = unsafe { salty_relayed_data_responder_new(keypair, remote, 0, nonzero_bytes_ptr, zero_bytes_ptr) };
+        assert_eq!(client_ret.success, salty_relayed_data_success_t::AUTH_TOKEN_INVALID);
     }
 
 }
