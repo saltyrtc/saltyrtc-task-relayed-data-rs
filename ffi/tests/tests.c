@@ -1,13 +1,13 @@
 /**
  * C integration test.
  */
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
-#include <pthread.h>
-#include <semaphore.h>
 
 #include "../saltyrtc_task_relayed_data_ffi.h"
 
@@ -63,7 +63,7 @@ void *connect_initiator(void *threadarg) {
     );
     if (client_ret.success != OK) {
         printf("    INITIATOR ERROR: Could not create client: %d", client_ret.success);
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
 
     initiator_sender = client_ret.sender_tx;
@@ -76,7 +76,7 @@ void *connect_initiator(void *threadarg) {
     auth_token = malloc(32 * sizeof(uint8_t));
     if (auth_token == NULL) {
         printf("      INITIATOR ERROR: Could not allocate memory for auth token");
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
     const uint8_t *auth_token_ref = salty_relayed_data_client_auth_token(client_ret.client);
     memcpy(auth_token, auth_token_ref, 32 * sizeof(uint8_t));
@@ -108,7 +108,7 @@ void *connect_initiator(void *threadarg) {
     salty_client_connect_success_t* connect_success_copy = malloc(sizeof(connect_success));
     if (connect_success_copy == NULL) {
         printf("      INITIATOR ERROR: Could not malloc %ld bytes\n", sizeof(connect_success));
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
     memcpy(connect_success_copy, &connect_success, sizeof(connect_success));
 
@@ -155,7 +155,7 @@ void *connect_responder(void *threadarg) {
     );
     if (client_ret.success != OK) {
         printf("      RESPONDER ERROR: Could not create client: %d", client_ret.success);
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
 
     responder_sender = client_ret.sender_tx;
@@ -188,7 +188,7 @@ void *connect_responder(void *threadarg) {
     salty_client_connect_success_t* connect_success_copy = malloc(sizeof(connect_success));
     if (connect_success_copy == NULL) {
         printf("      RESPONDER ERROR: Could not malloc %ld bytes\n", sizeof(connect_success));
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
     memcpy(connect_success_copy, &connect_success, sizeof(connect_success));
 
