@@ -22,7 +22,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
-use saltyrtc_client::{WsClient, SaltyClient, SaltyClientBuilder, CloseCode, BoxedFuture};
+use saltyrtc_client::{WsClient, SaltyClient, CloseCode, BoxedFuture};
 use saltyrtc_client::crypto::{PublicKey, KeyPair, AuthToken};
 use saltyrtc_client::dep::futures::{Future, Stream, Sink};
 use saltyrtc_client::dep::futures::future;
@@ -49,7 +49,7 @@ fn setup_initiator(
 ) -> (SaltyClient, mpsc::UnboundedReceiver<Message>) {
     let (tx, rx) = mpsc::unbounded();
     let task = RelayedDataTask::new(remote, tx);
-    let salty = SaltyClientBuilder::new(keypair)
+    let salty = SaltyClient::build(keypair)
         .add_task(Box::new(task))
         .initiator()
         .expect("Could not create initiator");
@@ -60,11 +60,11 @@ fn setup_responder(
     keypair: KeyPair,
     remote: Remote,
     pubkey: PublicKey,
-    auth_token: Option<AuthToken>,
+    auth_token: AuthToken,
 ) -> (SaltyClient, mpsc::UnboundedReceiver<Message>) {
     let (tx, rx) = mpsc::unbounded();
     let task = RelayedDataTask::new(remote, tx);
-    let salty = SaltyClientBuilder::new(keypair)
+    let salty = SaltyClient::build(keypair)
         .add_task(Box::new(task))
         .responder(pubkey, auth_token)
         .expect("Could not create initiator");
@@ -112,7 +112,7 @@ fn integration_test() {
 
     // Initialize initiator and responder
     let (initiator, rx_initiator) = setup_initiator(initiator_keypair, core.remote());
-    let (responder, rx_responder) = setup_responder(responder_keypair, core.remote(), pubkey, initiator.auth_token().cloned());
+    let (responder, rx_responder) = setup_responder(responder_keypair, core.remote(), pubkey, initiator.auth_token().cloned().unwrap());
 
     // Wrap `SaltyClient`s in `Rc<RefCell<_>>`
     let initiator = Rc::new(RefCell::new(initiator));
