@@ -267,6 +267,16 @@ int main() {
     const salty_keypair_t *r_keypair = salty_keypair_new();
     const salty_keypair_t *unused_keypair = salty_keypair_new();
 
+    printf("  Restoring keypair from existing key\n");
+    uint8_t *private_key_ptr = malloc(32);
+    if (private_key_ptr == NULL) {
+        printf("    ERROR: Could not malloc 32 bytes\n");
+        return EXIT_FAILURE;
+    }
+    memset(private_key_ptr, 42, 32);
+    const salty_keypair_t *restored_keypair = salty_keypair_restore(private_key_ptr);
+    free(private_key_ptr);
+
     printf("  Copying public key from initiator\n");
     uint8_t *i_pubkey = malloc(32 * sizeof(uint8_t));
     if (i_pubkey == NULL) {
@@ -391,8 +401,9 @@ int main() {
     printf("  Freeing public key copy\n");
     free(i_pubkey);
 
-    printf("  Freeing unused keypair\n");
+    printf("  Freeing unused keypairs\n");
     salty_keypair_free(unused_keypair);
+    salty_keypair_free(restored_keypair);
 
     printf("  Destroying semaphores\n");
     sem_destroy(&auth_token_set);

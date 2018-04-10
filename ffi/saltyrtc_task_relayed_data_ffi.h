@@ -469,6 +469,9 @@ void salty_keypair_free(const salty_keypair_t *ptr);
 
 /*
  * Create a new `KeyPair` instance and return an opaque pointer to it.
+ *
+ * Returns:
+ *     A pointer to a `salty_keypair_t`.
  */
 const salty_keypair_t *salty_keypair_new(void);
 
@@ -480,6 +483,18 @@ const salty_keypair_t *salty_keypair_new(void);
  *     Pointer to a 32 byte `uint8_t` array otherwise.
  */
 const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
+
+/*
+ * Create a new `KeyPair` instance and return an opaque pointer to it.
+ *
+ * Parameters:
+ *     private_key (`*uint8_t`, borrowed):
+ *         Pointer to a 32 byte private key.
+ * Returns:
+ *     A null pointer if restoring a keystore from a private key failed.
+ *     A pointer to a `salty_keypair_t` otherwise.
+ */
+const salty_keypair_t *salty_keypair_restore(const uint8_t *ptr);
 
 /*
  * Change the log level of the logger.
