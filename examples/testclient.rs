@@ -210,7 +210,7 @@ fn main() {
                 let auth_token = AuthToken::from_hex_str(&auth_token_hex).expect("Invalid auth token hex string");
                 let initiator_pubkey = public_key_from_hex_str(&path).unwrap();
                 builder
-                    .responder(initiator_pubkey, Some(auth_token))
+                    .responder(initiator_pubkey, auth_token)
                     .expect("Could not create SaltyClient instance")
             }
         }

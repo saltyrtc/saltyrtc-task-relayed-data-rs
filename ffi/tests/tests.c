@@ -1,13 +1,13 @@
 /**
  * C integration test.
  */
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
-#include <pthread.h>
-#include <semaphore.h>
 
 #include "../saltyrtc_task_relayed_data_ffi.h"
 
@@ -58,11 +58,12 @@ void *connect_initiator(void *threadarg) {
     salty_relayed_data_client_ret_t client_ret = salty_relayed_data_initiator_new(
         data->keypair,
         remote,
-        data->interval_seconds
+        data->interval_seconds,
+        NULL
     );
     if (client_ret.success != OK) {
         printf("    INITIATOR ERROR: Could not create client: %d", client_ret.success);
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
 
     initiator_sender = client_ret.sender_tx;
@@ -75,7 +76,7 @@ void *connect_initiator(void *threadarg) {
     auth_token = malloc(32 * sizeof(uint8_t));
     if (auth_token == NULL) {
         printf("      INITIATOR ERROR: Could not allocate memory for auth token");
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
     const uint8_t *auth_token_ref = salty_relayed_data_client_auth_token(client_ret.client);
     memcpy(auth_token, auth_token_ref, 32 * sizeof(uint8_t));
@@ -107,7 +108,7 @@ void *connect_initiator(void *threadarg) {
     salty_client_connect_success_t* connect_success_copy = malloc(sizeof(connect_success));
     if (connect_success_copy == NULL) {
         printf("      INITIATOR ERROR: Could not malloc %ld bytes\n", sizeof(connect_success));
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
     memcpy(connect_success_copy, &connect_success, sizeof(connect_success));
 
@@ -154,7 +155,7 @@ void *connect_responder(void *threadarg) {
     );
     if (client_ret.success != OK) {
         printf("      RESPONDER ERROR: Could not create client: %d", client_ret.success);
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
 
     responder_sender = client_ret.sender_tx;
@@ -187,7 +188,7 @@ void *connect_responder(void *threadarg) {
     salty_client_connect_success_t* connect_success_copy = malloc(sizeof(connect_success));
     if (connect_success_copy == NULL) {
         printf("      RESPONDER ERROR: Could not malloc %ld bytes\n", sizeof(connect_success));
-        pthread_exit((void *)NULL);
+        pthread_exit(NULL);
     }
     memcpy(connect_success_copy, &connect_success, sizeof(connect_success));
 
@@ -265,6 +266,24 @@ int main() {
     const salty_keypair_t *i_keypair = salty_keypair_new();
     const salty_keypair_t *r_keypair = salty_keypair_new();
     const salty_keypair_t *unused_keypair = salty_keypair_new();
+
+    printf("  Restoring keypair from existing key\n");
+    uint8_t *private_key_ptr = malloc(32);
+    if (private_key_ptr == NULL) {
+        printf("    ERROR: Could not malloc 32 bytes\n");
+        return EXIT_FAILURE;
+    }
+    memset(private_key_ptr, 42, 32);
+    const salty_keypair_t *restored_keypair = salty_keypair_restore(private_key_ptr);
+
+    printf("  Extracting private key of existing keypair\n");
+    const uint8_t *extracted_private_key = salty_keypair_private_key(restored_keypair);
+    if (memcmp(private_key_ptr, extracted_private_key, 32) != 0) {
+        printf("    ERROR: Extracted private key does not match original private key\n");
+        free(private_key_ptr);
+        return EXIT_FAILURE;
+    }
+    free(private_key_ptr);
 
     printf("  Copying public key from initiator\n");
     uint8_t *i_pubkey = malloc(32 * sizeof(uint8_t));
@@ -390,8 +409,9 @@ int main() {
     printf("  Freeing public key copy\n");
     free(i_pubkey);
 
-    printf("  Freeing unused keypair\n");
+    printf("  Freeing unused keypairs\n");
     salty_keypair_free(unused_keypair);
+    salty_keypair_free(restored_keypair);
 
     printf("  Destroying semaphores\n");
     sem_destroy(&auth_token_set);

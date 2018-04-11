@@ -187,6 +187,10 @@ enum salty_relayed_data_success_t {
    * The auth token bytes are not valid.
    */
   AUTH_TOKEN_INVALID = 4,
+  /*
+   * The trusted key bytes are not valid.
+   */
+  TRUSTED_KEY_INVALID = 5,
 };
 typedef uint8_t salty_relayed_data_success_t;
 
@@ -465,8 +469,22 @@ void salty_keypair_free(const salty_keypair_t *ptr);
 
 /*
  * Create a new `KeyPair` instance and return an opaque pointer to it.
+ *
+ * Returns:
+ *     A pointer to a `salty_keypair_t`.
  */
 const salty_keypair_t *salty_keypair_new(void);
+
+/*
+ * Get the private key from a `salty_keypair_t` instance.
+ *
+ * Returns:
+ *     A null pointer if the parameter is null.
+ *     Pointer to a 32 byte `uint8_t` array otherwise.
+ *     Note that the lifetime of the returned pointer is tied to the keypair.
+ *     If the keypair is freed, this pointer is invalidated.
+ */
+const uint8_t *salty_keypair_private_key(const salty_keypair_t *ptr);
 
 /*
  * Get the public key from a `salty_keypair_t` instance.
@@ -474,8 +492,22 @@ const salty_keypair_t *salty_keypair_new(void);
  * Returns:
  *     A null pointer if the parameter is null.
  *     Pointer to a 32 byte `uint8_t` array otherwise.
+ *     Note that the lifetime of the returned pointer is tied to the keypair.
+ *     If the keypair is freed, this pointer is invalidated.
  */
 const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
+
+/*
+ * Create a new `KeyPair` instance and return an opaque pointer to it.
+ *
+ * Parameters:
+ *     private_key (`*uint8_t`, borrowed):
+ *         Pointer to a 32 byte private key.
+ * Returns:
+ *     A null pointer if restoring a keystore from a private key failed.
+ *     A pointer to a `salty_keypair_t` otherwise.
+ */
+const salty_keypair_t *salty_keypair_restore(const uint8_t *ptr);
 
 /*
  * Change the log level of the logger.
@@ -532,12 +564,16 @@ void salty_relayed_data_client_free(const salty_client_t *ptr);
  *     ping_interval_seconds (`uint32_t`, copied):
  *         Request that the server sends a WebSocket ping message at the specified interval.
  *         Set this argument to `0` to disable ping messages.
+ *     trusted_responder_key (`*uint8_t` or `null`, borrowed):
+ *         The trusted responder public key. If set, this must be a pointer to a 32 byte
+ *         `uint8_t` array. Set this to null when not restoring a trusted session.
  * Returns:
  *     A `salty_relayed_data_client_ret_t` struct.
  */
 salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(const salty_keypair_t *keypair,
                                                                  const salty_remote_t *remote,
-                                                                 uint32_t ping_interval_seconds);
+                                                                 uint32_t ping_interval_seconds,
+                                                                 const uint8_t *trusted_responder_key);
 
 /*
  * Initialize a new SaltyRTC client as responder with the Relayed Data task.
@@ -553,8 +589,8 @@ salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(const salty_key
  *     initiator_pubkey (`*uint8_t`, borrowed):
  *         Public key of the initiator. A 32 byte `uint8_t` array.
  *     auth_token (`*uint8_t` or `null`, borrowed):
- *         One-time auth token from the initiator. If set, this must be a 32 byte `uint8_t` array.
- *         Set this to `null` when restoring a trusted session.
+ *         One-time auth token from the initiator. If set, this must be a pointer
+ *         to a 32 byte `uint8_t` array. Set this to `null` when restoring a trusted session.
  * Returns:
  *     A `salty_relayed_data_client_ret_t` struct.
  */

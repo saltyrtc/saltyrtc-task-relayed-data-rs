@@ -14,6 +14,7 @@
 
 use std::boxed::Box;
 use std::ptr;
+use std::slice;
 use std::sync::Mutex;
 
 use libc::uint8_t;
@@ -22,7 +23,7 @@ use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
-use saltyrtc_client::crypto::KeyPair;
+use saltyrtc_client::crypto::{KeyPair, PrivateKey};
 use tokio_core::reactor::{Core, Remote};
 
 use constants::*;
@@ -200,9 +201,38 @@ pub extern "C" fn salty_log_change_level(level: uint8_t) -> bool {
 // *** KEY PAIRS *** //
 
 /// Create a new `KeyPair` instance and return an opaque pointer to it.
+///
+/// Returns:
+///     A pointer to a `salty_keypair_t`.
 #[no_mangle]
 pub extern "C" fn salty_keypair_new() -> *const salty_keypair_t {
     Box::into_raw(Box::new(KeyPair::new())) as *const salty_keypair_t
+}
+
+/// Create a new `KeyPair` instance and return an opaque pointer to it.
+///
+/// Parameters:
+///     private_key (`*uint8_t`, borrowed):
+///         Pointer to a 32 byte private key.
+/// Returns:
+///     A null pointer if restoring a keystore from a private key failed.
+///     A pointer to a `salty_keypair_t` otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn salty_keypair_restore(ptr: *const uint8_t) -> *const salty_keypair_t {
+    if ptr.is_null() {
+        error!("Tried to dereference a null pointer");
+        return ptr::null();
+    }
+    let private_key_slice: &[u8] = slice::from_raw_parts(ptr, 32);
+    let private_key = match PrivateKey::from_slice(private_key_slice) {
+        Some(key) => key,
+        None => {
+            error!("Could not restore private key from slice");
+            return ptr::null();
+        }
+    };
+    let keypair = KeyPair::from_private_key(private_key);
+    Box::into_raw(Box::new(keypair)) as *const salty_keypair_t
 }
 
 /// Get the public key from a `salty_keypair_t` instance.
@@ -210,15 +240,35 @@ pub extern "C" fn salty_keypair_new() -> *const salty_keypair_t {
 /// Returns:
 ///     A null pointer if the parameter is null.
 ///     Pointer to a 32 byte `uint8_t` array otherwise.
+///     Note that the lifetime of the returned pointer is tied to the keypair.
+///     If the keypair is freed, this pointer is invalidated.
 #[no_mangle]
 pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -> *const uint8_t {
     if ptr.is_null() {
-        warn!("Tried to dereference a null pointer");
+        error!("Tried to dereference a null pointer");
         return ptr::null();
     }
     let keypair = &*(ptr as *const KeyPair) as &KeyPair;
     let pubkey_bytes: &[u8; 32] = &(keypair.public_key().0);
     pubkey_bytes.as_ptr()
+}
+
+/// Get the private key from a `salty_keypair_t` instance.
+///
+/// Returns:
+///     A null pointer if the parameter is null.
+///     Pointer to a 32 byte `uint8_t` array otherwise.
+///     Note that the lifetime of the returned pointer is tied to the keypair.
+///     If the keypair is freed, this pointer is invalidated.
+#[no_mangle]
+pub unsafe extern "C" fn salty_keypair_private_key(ptr: *const salty_keypair_t) -> *const uint8_t {
+    if ptr.is_null() {
+        error!("Tried to dereference a null pointer");
+        return ptr::null();
+    }
+    let keypair = &*(ptr as *const KeyPair) as &KeyPair;
+    let privkey_bytes: &[u8; 32] = &(keypair.private_key().0);
+    privkey_bytes.as_ptr()
 }
 
 /// Free a `KeyPair` instance.
