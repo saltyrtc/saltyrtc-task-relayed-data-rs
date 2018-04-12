@@ -835,7 +835,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "saltyrtc-client"
 version = "0.1.0"
-source = "git+https://github.com/saltyrtc/saltyrtc-client-rs.git?branch=develop#0c088315a060c06722dc6295bd36d464295514ac"
+source = "git+https://github.com/saltyrtc/saltyrtc-client-rs.git?branch=develop#5809ab6c4f90d24ca8e6d37f6208ea48bd138b49"
 dependencies = [
  "byteorder 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "data-encoding 2.1.1 (registry+https://github.com/rust-lang/crates.io-index)",

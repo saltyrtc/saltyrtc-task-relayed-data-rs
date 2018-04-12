@@ -817,7 +817,7 @@ pub unsafe extern "C" fn salty_client_connect(
     };
 
     // Create task loop future
-    let (task, task_loop) = match saltyrtc_client::task_loop(ws_client, client_rc_clone3) {
+    let (task, task_loop, event_rx) = match saltyrtc_client::task_loop(ws_client, client_rc_clone3) {
         Ok(val) => val,
         Err(e) => {
             error!("Could not start task loop: {}", e);
@@ -1077,7 +1077,7 @@ pub unsafe extern "C" fn salty_client_recv_event(
         }
         BlockingMode::TIMEOUT(duration) => {
             let timeout_future = Timer::default().sleep(duration).map_err(|_| ());
-            let mut rx_future = rx.into_future();
+            let rx_future = rx.into_future();
             let res = rx_future.select2(timeout_future).wait();
             match res {
                 Ok(Either::A(((Some(msg), _), _))) => make_message_event_ret(msg),

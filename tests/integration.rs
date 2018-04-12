@@ -145,9 +145,9 @@ fn integration_test() {
     ).unwrap();
 
     // Setup task loops
-    let (task_initiator, initiator_task_loop) =
+    let (task_initiator, initiator_task_loop, _event_rx) =
         saltyrtc_client::task_loop(client_initiator, initiator.clone()).unwrap();
-    let (task_responder, responder_task_loop) =
+    let (task_responder, responder_task_loop, _event_rx) =
         saltyrtc_client::task_loop(client_responder, responder.clone()).unwrap();
 
     let (tx_initiator, tx_responder) = {

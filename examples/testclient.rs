@@ -260,7 +260,7 @@ fn main() {
     let ws_client = core.run(connect_future).expect("Could not connect");
 
     // Setup task loop
-    let (task, task_loop) = saltyrtc_client::task_loop(ws_client, client.clone()).unwrap();
+    let (task, task_loop, _event_rx) = saltyrtc_client::task_loop(ws_client, client.clone()).unwrap();
 
     // Get access to outgoing channel
     let _outgoing_tx = {
