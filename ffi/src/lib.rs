@@ -695,6 +695,8 @@ pub unsafe extern "C" fn salty_client_connect(
     ca_cert: *const uint8_t,
     ca_cert_len: uint32_t,
 ) -> salty_client_connect_success_t {
+    trace!("salty_client_connect: Initializing");
+
     // Null pointer checks
     if host.is_null() {
         error!("Hostname pointer is null");
@@ -744,8 +746,10 @@ pub unsafe extern "C" fn salty_client_connect(
 
     // Read CA certificate (if present)
     let ca_cert_opt: Option<Certificate> = if ca_cert.is_null() {
+        debug!("Using system CA chain");
         None
     } else {
+        debug!("Reading CA certificate");
         let bytes: &[u8] = slice::from_raw_parts(ca_cert, ca_cert_len as usize);
         Some(match Certificate::from_der(bytes) {
             Ok(cert) => cert,

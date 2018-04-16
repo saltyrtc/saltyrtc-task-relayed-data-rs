@@ -75,6 +75,7 @@ fn make_log_config(level: LevelFilter) -> Result<Config, String> {
         .logger(Logger::builder().build("saltyrtc_client", level))
         .logger(Logger::builder().build("saltyrtc_task_relayed_data", level))
         .logger(Logger::builder().build("saltyrtc_task_relayed_data_ffi", level))
+        .logger(Logger::builder().build("websocket", level))
         .build(Root::builder().appender("stdout").build(LevelFilter::Warn));
 
     config_res.map_err(|e| format!("Could not make log config: {}", e))
