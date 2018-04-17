@@ -25,7 +25,7 @@ use saltyrtc_client::dep::futures::{future, Future, Stream};
 use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol};
 use saltyrtc_client::tasks::Task;
-use saltyrtc_task_relayed_data::{RelayedDataTask, RelayedDataError, Message};
+use saltyrtc_task_relayed_data::{RelayedDataTask, RelayedDataError, Event};
 use tokio_core::reactor::Core;
 
 const ARG_PING_INTERVAL: &'static str = "ping_interval";
@@ -275,15 +275,15 @@ fn main() {
         rd_task.get_sender().unwrap()
     };
 
-    // Print all incoming messages to stdout
+    // Print all incoming events to stdout
     let recv_loop = incoming_rx
         .map_err(|_| Err(RelayedDataError::Channel(("Could not read from rx_responder").into())))
-        .for_each(move |msg: Message| match msg {
-            Message::Data(data) => {
+        .for_each(move |ev: Event| match ev {
+            Event::Data(data) => {
                 println!("Incoming data message: {}", data);
                 boxed!(future::ok(()))
             },
-            Message::Disconnect(reason) => {
+            Event::Disconnect(reason) => {
                 println!("Connection was closed: {}", reason);
                 boxed!(future::err(Ok(())))
             }

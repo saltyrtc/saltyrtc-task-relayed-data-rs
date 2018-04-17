@@ -50,8 +50,9 @@ pub struct RelayedDataTask {
     /// The connection context is embedded in `State::Started`.
     state: State,
 
-    /// The sending end of a channel to send incoming messages to the task user.
-    incoming_tx: UnboundedSender<Message>,
+    /// The sending end of a channel to send incoming messages and events to
+    /// the task user.
+    incoming_tx: UnboundedSender<Event>,
 }
 
 #[derive(Debug)]
@@ -68,13 +69,13 @@ pub struct ConnectionContext {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Message {
+pub enum Event {
     Data(Value),
     Disconnect(CloseCode),
 }
 
 impl RelayedDataTask {
-    pub fn new(remote: Remote, incoming_tx: UnboundedSender<Message>) -> Self {
+    pub fn new(remote: Remote, incoming_tx: UnboundedSender<Event>) -> Self {
         RelayedDataTask {
             remote,
             state: State::Stopped,
@@ -142,7 +143,7 @@ impl Task for RelayedDataTask {
                         return boxed!(
                             incoming_tx
                                 .clone()
-                                .send(Message::Disconnect(reason))
+                                .send(Event::Disconnect(reason))
                                 .map(|_| ())
                                 .map_err(|_| ())
                         );
@@ -165,7 +166,7 @@ impl Task for RelayedDataTask {
                         debug!("Sending {} message payload through channel", TYPE_DATA);
                         handle.spawn(
                             incoming_tx
-                                .send(Message::Data(payload.clone()))
+                                .send(Event::Data(payload.clone()))
                                 .map(|_| ()) // TODO
                                 .map_err(|_| ()) // TODO
                         )
