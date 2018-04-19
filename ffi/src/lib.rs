@@ -974,6 +974,24 @@ pub unsafe extern "C" fn salty_client_send_task_bytes(
     salty_client_send_bytes(OutgoingMessageType::Task, sender_tx, msg, msg_len)
 }
 
+/// Send an application message through the outgoing channel.
+///
+/// Parameters:
+///     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
+///         The sending end of the channel for outgoing messages.
+///     msg (`*uint8_t`, borrowed):
+///         Pointer to the message bytes.
+///     msg_len (`uint32_t`, copied):
+///         Length of the message in bytes.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_send_application_bytes(
+    sender_tx: *const salty_channel_sender_tx_t,
+    msg: *const uint8_t,
+    msg_len: uint32_t,
+) -> salty_client_send_success_t {
+    salty_client_send_bytes(OutgoingMessageType::Application, sender_tx, msg, msg_len)
+}
+
 /// Receive an event from the outgoing channel.
 ///
 /// Parameters:

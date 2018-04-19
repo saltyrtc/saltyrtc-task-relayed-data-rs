@@ -412,6 +412,21 @@ salty_client_recv_ret_t salty_client_recv_event(const salty_channel_receiver_rx_
 void salty_client_recv_ret_free(salty_client_recv_ret_t recv_ret);
 
 /*
+ * Send an application message through the outgoing channel.
+ *
+ * Parameters:
+ *     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
+ *         The sending end of the channel for outgoing messages.
+ *     msg (`*uint8_t`, borrowed):
+ *         Pointer to the message bytes.
+ *     msg_len (`uint32_t`, copied):
+ *         Length of the message in bytes.
+ */
+salty_client_send_success_t salty_client_send_application_bytes(const salty_channel_sender_tx_t *sender_tx,
+                                                                const uint8_t *msg,
+                                                                uint32_t msg_len);
+
+/*
  * Send a task message through the outgoing channel.
  *
  * Parameters:
