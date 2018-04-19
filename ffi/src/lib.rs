@@ -903,22 +903,17 @@ pub unsafe extern "C" fn salty_client_connect(
     }
 }
 
-/// Send a message through the outgoing channel.
-///
-/// Parameters:
-///     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
-///         The sending end of the channel for outgoing messages.
-///     msg (`*uint8_t`, borrowed):
-///         Pointer to the message bytes.
-///     msg_len (`uint32_t`, copied):
-///         Length of the message in bytes.
-#[no_mangle]
-pub unsafe extern "C" fn salty_client_send_bytes(
+enum OutgoingMessageType {
+    Task,
+    Application,
+}
+
+unsafe fn salty_client_send_bytes(
+    msg_type: OutgoingMessageType,
     sender_tx: *const salty_channel_sender_tx_t,
     msg: *const uint8_t,
     msg_len: uint32_t,
 ) -> salty_client_send_success_t {
-
     // Null pointer checks
     if sender_tx.is_null() {
         error!("Sender channel pointer is null");
@@ -949,13 +944,34 @@ pub unsafe extern "C" fn salty_client_send_bytes(
         return salty_client_send_success_t::SEND_MESSAGE_ERROR;
     }
 
-    match sender.unbounded_send(OutgoingMessage::Data(msg)) {
+    match sender.unbounded_send(match msg_type {
+        OutgoingMessageType::Task => OutgoingMessage::Data(msg),
+        OutgoingMessageType::Application => OutgoingMessage::Application(msg),
+    }) {
         Ok(_) => salty_client_send_success_t::SEND_OK,
         Err(e) => {
             error!("Sending message failed: {}", e);
             salty_client_send_success_t::SEND_ERROR
         },
     }
+}
+
+/// Send a task message through the outgoing channel.
+///
+/// Parameters:
+///     sender_tx (`*salty_channel_sender_tx_t`, borrowed):
+///         The sending end of the channel for outgoing messages.
+///     msg (`*uint8_t`, borrowed):
+///         Pointer to the message bytes.
+///     msg_len (`uint32_t`, copied):
+///         Length of the message in bytes.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_send_task_bytes(
+    sender_tx: *const salty_channel_sender_tx_t,
+    msg: *const uint8_t,
+    msg_len: uint32_t,
+) -> salty_client_send_success_t {
+    salty_client_send_bytes(OutgoingMessageType::Task, sender_tx, msg, msg_len)
 }
 
 /// Receive an event from the outgoing channel.
@@ -1178,7 +1194,7 @@ mod tests {
     fn test_send_bytes_sender_null_ptr() {
         let msg = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
         let result = unsafe {
-            salty_client_send_bytes(
+            salty_client_send_task_bytes(
                 ptr::null(),
                 msg,
                 3,
@@ -1192,7 +1208,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded::<OutgoingMessage>();
         let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
         let result = unsafe {
-            salty_client_send_bytes(
+            salty_client_send_task_bytes(
                 tx_ptr,
                 ptr::null(),
                 3,
@@ -1213,7 +1229,7 @@ mod tests {
         let msg_ptr = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
 
         let result = unsafe {
-            salty_client_send_bytes(
+            salty_client_send_task_bytes(
                 tx_ptr,
                 msg_ptr,
                 3,

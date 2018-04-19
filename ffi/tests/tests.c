@@ -333,7 +333,7 @@ int main() {
     // Send message
     printf("  Sending message from initiator to responder\n");
     const uint8_t msg[] = { 0x93, 0x01, 0x02, 0x03 };
-    if (SEND_OK != salty_client_send_bytes(initiator_sender, msg, 4)) {
+    if (SEND_OK != salty_client_send_task_bytes(initiator_sender, msg, 4)) {
         printf("  ERROR: Sending message from initiator to responder failed\n");
         return EXIT_FAILURE;
     }
