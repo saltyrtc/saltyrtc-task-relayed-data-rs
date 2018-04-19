@@ -155,9 +155,13 @@ enum salty_event_type_t {
    */
   EVENT_DISCONNECTED = 16,
   /*
-   * Incoming message.
+   * Incoming application message.
    */
-  EVENT_INCOMING_MSG = 255,
+  EVENT_INCOMING_APPLICATION_MSG = 254,
+  /*
+   * Incoming task message.
+   */
+  EVENT_INCOMING_TASK_MSG = 255,
 };
 typedef uint8_t salty_event_type_t;
 
@@ -211,21 +215,21 @@ typedef struct salty_channel_disconnect_tx_t salty_channel_disconnect_tx_t;
 /*
  * The channel for receiving incoming messages.
  *
- * On the Rust side, this is an `mpsc::UnboundedReceiver<Message>`.
+ * On the Rust side, this is an `mpsc::UnboundedReceiver<Event>`.
  */
 typedef struct salty_channel_receiver_rx_t salty_channel_receiver_rx_t;
 
 /*
  * The channel for sending outgoing messages (receiving end).
  *
- * On the Rust side, this is an `mpsc::UnboundedReceiver<Value>`.
+ * On the Rust side, this is an `mpsc::UnboundedReceiver<OutgoingMessage>`.
  */
 typedef struct salty_channel_sender_rx_t salty_channel_sender_rx_t;
 
 /*
  * The channel for sending outgoing messages (sending end).
  *
- * On the Rust side, this is an `mpsc::UnboundedSender<Value>`.
+ * On the Rust side, this is an `mpsc::UnboundedSender<OutgoingMessage>`.
  */
 typedef struct salty_channel_sender_tx_t salty_channel_sender_tx_t;
 
@@ -258,7 +262,7 @@ typedef struct salty_remote_t salty_remote_t;
 /*
  * An event (e.g. a connectivity change or an incoming message).
  *
- * If the event type is `EVENT_INCOMING_MSG`, then the `msg_bytes` field will
+ * If the event type is `EVENT_INCOMING_*_MSG`, then the `msg_bytes` field will
  * point to the bytes of the decrypted message. Otherwise, the field is `null`.
  *
  * If the event type is `EVENT_DISCONNECTED`, then the `close_code` field will

@@ -55,7 +55,7 @@ use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::dep::rmpv::decode::read_value;
 use saltyrtc_client::tasks::{BoxedTask, Task};
 pub use saltyrtc_client_ffi::{salty_client_t, salty_keypair_t, salty_remote_t, salty_event_loop_t};
-use saltyrtc_task_relayed_data::{RelayedDataTask, Message};
+use saltyrtc_task_relayed_data::{RelayedDataTask, Event, OutgoingMessage};
 use tokio_core::reactor::{Core, Remote};
 use tokio_timer::Timer;
 
@@ -110,19 +110,19 @@ pub struct salty_relayed_data_client_ret_t {
 
 /// The channel for receiving incoming messages.
 ///
-/// On the Rust side, this is an `mpsc::UnboundedReceiver<Message>`.
+/// On the Rust side, this is an `mpsc::UnboundedReceiver<Event>`.
 #[no_mangle]
 pub enum salty_channel_receiver_rx_t {}
 
 /// The channel for sending outgoing messages (sending end).
 ///
-/// On the Rust side, this is an `mpsc::UnboundedSender<Value>`.
+/// On the Rust side, this is an `mpsc::UnboundedSender<OutgoingMessage>`.
 #[no_mangle]
 pub enum salty_channel_sender_tx_t {}
 
 /// The channel for sending outgoing messages (receiving end).
 ///
-/// On the Rust side, this is an `mpsc::UnboundedReceiver<Value>`.
+/// On the Rust side, this is an `mpsc::UnboundedReceiver<OutgoingMessage>`.
 #[no_mangle]
 pub enum salty_channel_sender_rx_t {}
 
@@ -221,13 +221,16 @@ pub enum salty_event_type_t {
     /// The connection has ended.
     EVENT_DISCONNECTED = 0x10,
 
-    /// Incoming message.
-    EVENT_INCOMING_MSG = 0xff,
+    /// Incoming application message.
+    EVENT_INCOMING_APPLICATION_MSG = 0xfe,
+
+    /// Incoming task message.
+    EVENT_INCOMING_TASK_MSG = 0xff,
 }
 
 /// An event (e.g. a connectivity change or an incoming message).
 ///
-/// If the event type is `EVENT_INCOMING_MSG`, then the `msg_bytes` field will
+/// If the event type is `EVENT_INCOMING_*_MSG`, then the `msg_bytes` field will
 /// point to the bytes of the decrypted message. Otherwise, the field is `null`.
 ///
 /// If the event type is `EVENT_DISCONNECTED`, then the `close_code` field will
@@ -302,9 +305,9 @@ fn make_event_recv_error(reason: salty_client_recv_success_t) -> salty_client_re
 
 struct ClientBuilderRet {
     builder: SaltyClientBuilder,
-    receiver_rx: mpsc::UnboundedReceiver<Message>,
-    sender_tx: mpsc::UnboundedSender<Value>,
-    sender_rx: mpsc::UnboundedReceiver<Value>,
+    receiver_rx: mpsc::UnboundedReceiver<Event>,
+    sender_tx: mpsc::UnboundedSender<OutgoingMessage>,
+    sender_rx: mpsc::UnboundedReceiver<OutgoingMessage>,
     disconnect_tx: oneshot::Sender<CloseCode>,
     disconnect_rx: oneshot::Receiver<CloseCode>,
 }
@@ -600,7 +603,7 @@ pub unsafe extern "C" fn salty_channel_receiver_rx_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Message>);
+    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Event>);
 }
 
 /// Free a `salty_channel_sender_tx_t` instance.
@@ -612,7 +615,7 @@ pub unsafe extern "C" fn salty_channel_sender_tx_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut mpsc::UnboundedSender<Value>);
+    Box::from_raw(ptr as *mut mpsc::UnboundedSender<OutgoingMessage>);
 }
 
 /// Free a `salty_channel_sender_rx_t` instance.
@@ -624,7 +627,7 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Value>);
+    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<OutgoingMessage>);
 }
 
 /// Free a `salty_channel_disconnect_tx_t` instance.
@@ -741,7 +744,7 @@ pub unsafe extern "C" fn salty_client_connect(
     let core = &mut *(event_loop as *mut Core) as &mut Core;
 
     // Get channel sender instances
-    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<Value>);
+    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<OutgoingMessage>);
     let disconnect_rx_box = Box::from_raw(disconnect_rx as *mut oneshot::Receiver<CloseCode>);
 
     // Read CA certificate (if present)
@@ -830,7 +833,7 @@ pub unsafe extern "C" fn salty_client_connect(
     };
 
     // Get access to task tx channel
-    let task_sender: mpsc::UnboundedSender<Value> = {
+    let task_sender: mpsc::UnboundedSender<OutgoingMessage> = {
         // Lock task mutex
         let mut task_locked = match task.lock() {
             Ok(guard) => guard,
@@ -927,7 +930,7 @@ pub unsafe extern "C" fn salty_client_send_bytes(
     }
 
     // Get pointer to UnboundedSender
-    let sender = &*(sender_tx as *const mpsc::UnboundedSender<Value>) as &mpsc::UnboundedSender<Value>;
+    let sender = &*(sender_tx as *const mpsc::UnboundedSender<OutgoingMessage>) as &mpsc::UnboundedSender<OutgoingMessage>;
 
     // Parse message bytes into a rmpv `Value`
     let msg_slice: &[u8] = slice::from_raw_parts(msg, msg_len as usize);
@@ -946,7 +949,7 @@ pub unsafe extern "C" fn salty_client_send_bytes(
         return salty_client_send_success_t::SEND_MESSAGE_ERROR;
     }
 
-    match sender.unbounded_send(msg) {
+    match sender.unbounded_send(OutgoingMessage::Data(msg)) {
         Ok(_) => salty_client_send_success_t::SEND_OK,
         Err(e) => {
             error!("Sending message failed: {}", e);
@@ -993,46 +996,51 @@ pub unsafe extern "C" fn salty_client_recv_event(
     };
 
     // Get channel receiver reference
-    let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<Message>)
-          as &mut mpsc::UnboundedReceiver<Message>;
+    let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<Event>)
+          as &mut mpsc::UnboundedReceiver<Event>;
 
     // Helper function
-    fn make_message_event_ret(msg: Message) -> salty_client_recv_ret_t {
-        match msg {
-            Message::Data(val) => {
-                // Encode msgpack bytes
-                let bytes: Vec<u8> = match rmps::to_vec_named(&val) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        error!("Could not encode value: {}", e);
-                        return make_event_recv_error(salty_client_recv_success_t::RECV_ERROR);
-                    }
-                };
+    fn make_message_event_ret(msg: Event) -> salty_client_recv_ret_t {
 
-                // Get pointer to bytes on heap
-                let bytes_box = bytes.into_boxed_slice();
-                let bytes_len = bytes_box.len();
-                let bytes_ptr = Box::into_raw(bytes_box);
-
-                // Make event struct
-                let event = salty_event_t {
-                    event_type: salty_event_type_t::EVENT_INCOMING_MSG,
-                    msg_bytes: bytes_ptr as *const uint8_t,
-                    msg_bytes_len: bytes_len,
-                    close_code: 0,
-                };
-
-                // Get pointer to event on heap
-                let event_ptr = Box::into_raw(Box::new(event));
-
-                // TODO: Add function to free allocated memory.
-
-                salty_client_recv_ret_t {
-                    success: salty_client_recv_success_t::RECV_OK,
-                    event: event_ptr,
+        // Another helper function :)
+        fn _data_or_application(val: Value, event_type: salty_event_type_t) -> salty_client_recv_ret_t {
+            // Encode msgpack bytes
+            let bytes: Vec<u8> = match rmps::to_vec_named(&val) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    error!("Could not encode value: {}", e);
+                    return make_event_recv_error(salty_client_recv_success_t::RECV_ERROR);
                 }
-            },
-            Message::Disconnect(close_code) => {
+            };
+
+            // Get pointer to bytes on heap
+            let bytes_box = bytes.into_boxed_slice();
+            let bytes_len = bytes_box.len();
+            let bytes_ptr = Box::into_raw(bytes_box);
+
+            // Make event struct
+            let event = salty_event_t {
+                event_type,
+                msg_bytes: bytes_ptr as *const uint8_t,
+                msg_bytes_len: bytes_len,
+                close_code: 0,
+            };
+
+            // Get pointer to event on heap
+            let event_ptr = Box::into_raw(Box::new(event));
+
+            // TODO: Add function to free allocated memory.
+
+            salty_client_recv_ret_t {
+                success: salty_client_recv_success_t::RECV_OK,
+                event: event_ptr,
+            }
+        }
+
+        match msg {
+            Event::Data(val) => _data_or_application(val, salty_event_type_t::EVENT_INCOMING_TASK_MSG),
+            Event::Application(val) => _data_or_application(val, salty_event_type_t::EVENT_INCOMING_APPLICATION_MSG),
+            Event::Close(close_code) => {
                 // Make event struct
                 let event = salty_event_t {
                     event_type: salty_event_type_t::EVENT_DISCONNECTED,
@@ -1181,7 +1189,7 @@ mod tests {
 
     #[test]
     fn test_send_bytes_msg_null_ptr() {
-        let (tx, _rx) = mpsc::unbounded::<Value>();
+        let (tx, _rx) = mpsc::unbounded::<OutgoingMessage>();
         let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
         let result = unsafe {
             salty_client_send_bytes(
@@ -1196,7 +1204,7 @@ mod tests {
     #[test]
     fn test_msgpack_decode_invalid() {
         // Create channel
-        let (tx, _rx) = mpsc::unbounded::<Value>();
+        let (tx, _rx) = mpsc::unbounded::<OutgoingMessage>();
         let tx_ptr = Box::into_raw(Box::new(tx)) as *const salty_channel_sender_tx_t;
 
         // Create message
@@ -1222,7 +1230,7 @@ mod tests {
 
     #[test]
     fn test_recv_nonblocking() {
-        let (tx, rx) = mpsc::unbounded::<Message>();
+        let (tx, rx) = mpsc::unbounded::<Event>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         let timeout_ptr = Box::into_raw(Box::new(0u32)) as *const uint32_t;
@@ -1232,16 +1240,17 @@ mod tests {
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Send two messages
-        tx.unbounded_send(Message::Data(Value::Integer(42.into()))).unwrap();
-        tx.unbounded_send(Message::Disconnect(CloseCode::from_number(3002).unwrap())).unwrap();
+        tx.unbounded_send(Event::Data(Value::Integer(42.into()))).unwrap();
+        tx.unbounded_send(Event::Application(Value::Integer(23.into()))).unwrap();
+        tx.unbounded_send(Event::Close(CloseCode::from_number(3002).unwrap())).unwrap();
 
-        // Receive data
+        // Receive task data
         let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
         assert_eq!(result.event.is_null(), false);
         unsafe {
             let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_MSG);
+            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_TASK_MSG);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
                 event.msg_bytes as *mut u8,
@@ -1249,6 +1258,23 @@ mod tests {
                 event.msg_bytes_len,
             );
             assert_eq!(msg_bytes, vec![42]);
+            assert_eq!(event.close_code, 0);
+        }
+
+        // Receive application data
+        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
+        assert_eq!(result.event.is_null(), false);
+        unsafe {
+            let event = &*result.event;
+            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_APPLICATION_MSG);
+            assert_eq!(event.msg_bytes_len, 1);
+            let msg_bytes = Vec::from_raw_parts(
+                event.msg_bytes as *mut u8,
+                event.msg_bytes_len,
+                event.msg_bytes_len,
+            );
+            assert_eq!(msg_bytes, vec![23]);
             assert_eq!(event.close_code, 0);
         }
 
@@ -1284,7 +1310,7 @@ mod tests {
 
     #[test]
     fn test_recv_timeout_thread() {
-        let (tx, rx) = mpsc::unbounded::<Message>();
+        let (tx, rx) = mpsc::unbounded::<Event>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         let timeout_1s_ptr = Box::into_raw(Box::new(1_000u32)) as *const uint32_t;
@@ -1293,7 +1319,7 @@ mod tests {
         // Set up thread to post a message after 1.5 seconds
         let child = ::std::thread::spawn(move || {
             ::std::thread::sleep(Duration::from_millis(1500));
-            tx.unbounded_send(Message::Disconnect(CloseCode::from_number(3000).unwrap())).unwrap();
+            tx.unbounded_send(Event::Close(CloseCode::from_number(3000).unwrap())).unwrap();
         });
 
         // Wait for max 1s, but receive no data (timeout)
@@ -1329,7 +1355,7 @@ mod tests {
 
     #[test]
     fn test_recv_timeout_simple() {
-        let (_tx, rx) = mpsc::unbounded::<Message>();
+        let (_tx, rx) = mpsc::unbounded::<Event>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         // Wait for max 500ms, but receive no data (timeout)

@@ -64,14 +64,23 @@ pub enum State {
 #[derive(Debug)]
 pub struct ConnectionContext {
     outgoing_tx: UnboundedSender<TaskMessage>,
-    user_outgoing_tx: UnboundedSender<Value>,
+    user_outgoing_tx: UnboundedSender<OutgoingMessage>,
     disconnect_tx: OneshotSender<Option<CloseCode>>,
 }
 
+/// An incoming event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Data(Value),
-    Disconnect(CloseCode),
+    Application(Value),
+    Close(CloseCode),
+}
+
+/// Outgoing data.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutgoingMessage {
+    Data(Value),
+    Application(Value),
 }
 
 impl RelayedDataTask {
@@ -84,7 +93,7 @@ impl RelayedDataTask {
     }
 
     /// Return the sending end of a channel, to be able to send outgoing values.
-    pub fn get_sender(&self) -> Result<UnboundedSender<Value>, String> {
+    pub fn get_sender(&self) -> Result<UnboundedSender<OutgoingMessage>, String> {
         match self.state {
             State::Stopped => return Err("Cannot return Sender in `Stopped` state".into()),
             State::Started(ref cctx) => Ok(cctx.user_outgoing_tx.clone()),
@@ -119,7 +128,7 @@ impl Task for RelayedDataTask {
         };
 
         // Update state
-        let (user_outgoing_tx, user_outgoing_rx) = mpsc::unbounded::<Value>();
+        let (user_outgoing_tx, user_outgoing_rx) = mpsc::unbounded::<OutgoingMessage>();
         let cctx = ConnectionContext {
             outgoing_tx: outgoing_tx.clone(),
             disconnect_tx,
@@ -129,7 +138,7 @@ impl Task for RelayedDataTask {
 
 
         // TODO: Better error handling
-        let incoming_tx = self.incoming_tx.clone();
+        let user_incoming_tx = self.incoming_tx.clone();
         self.remote.spawn(move |handle| {
             let handle = handle.clone();
 
@@ -137,13 +146,24 @@ impl Task for RelayedDataTask {
             let incoming = incoming_rx.for_each(move |msg: TaskMessage| {
                 let map: HashMap<String, Value> = match msg {
                     TaskMessage::Value(map) => map,
+                    TaskMessage::Application(data) => {
+                        // Send application message through channel
+                        debug!("Sending application message payload through channel");
+                        return boxed!(
+                            user_incoming_tx
+                                .clone()
+                                .send(Event::Application(data))
+                                .map(|_| ()) // TODO
+                                .map_err(|_| ()) // TODO
+                        );
+                    },
                     TaskMessage::Close(reason) => {
-                        // Peer requests closing of connection.
+                        // Peer is closing the connection.
                         // Notify user about this.
                         return boxed!(
-                            incoming_tx
+                            user_incoming_tx
                                 .clone()
-                                .send(Event::Disconnect(reason))
+                                .send(Event::Close(reason))
                                 .map(|_| ())
                                 .map_err(|_| ())
                         );
@@ -162,10 +182,10 @@ impl Task for RelayedDataTask {
                 match map.get(KEY_PAYLOAD) {
                     Some(payload) => {
                         // Send payload through channel
-                        let incoming_tx = incoming_tx.clone();
+                        let user_incoming_tx = user_incoming_tx.clone();
                         debug!("Sending {} message payload through channel", TYPE_DATA);
                         handle.spawn(
-                            incoming_tx
+                            user_incoming_tx
                                 .send(Event::Data(payload.clone()))
                                 .map(|_| ()) // TODO
                                 .map_err(|_| ()) // TODO
@@ -177,16 +197,21 @@ impl Task for RelayedDataTask {
                 boxed!(future::ok(()))
             });
 
-            let outgoing = user_outgoing_rx.for_each(move |val: Value| {
-                // Prepare message map
-                let mut map: HashMap<String, Value> = HashMap::new();
-                map.insert(KEY_TYPE.into(), Value::String(TYPE_DATA.into()));
-                map.insert(KEY_PAYLOAD.into(), val);
+            let outgoing = user_outgoing_rx.for_each(move |msg: OutgoingMessage| {
+                let task_message = match msg {
+                    OutgoingMessage::Data(val) => {
+                        let mut map: HashMap<String, Value> = HashMap::new();
+                        map.insert(KEY_TYPE.into(), Value::String(TYPE_DATA.into()));
+                        map.insert(KEY_PAYLOAD.into(), val);
+                        TaskMessage::Value(map)
+                    },
+                    OutgoingMessage::Application(val) => TaskMessage::Application(val),
+                };
 
                 // Send message through channel
                 let future = outgoing_tx
                     .clone()
-                    .send(TaskMessage::Value(map))
+                    .send(task_message)
                     .map(|_sink| ())
                     .map_err(|_| ());
 
@@ -235,6 +260,8 @@ impl Task for RelayedDataTask {
 
     /// This method can be called by the user to close the connection.
     fn close(&mut self, reason: CloseCode) {
+        debug!("Stopping relayed data task");
+
         // Extract and destructure connection context
         let state = mem::replace(&mut self.state, State::Stopped);
         let cctx: ConnectionContext = match state {

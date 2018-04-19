@@ -283,7 +283,11 @@ fn main() {
                 println!("Incoming data message: {}", data);
                 boxed!(future::ok(()))
             },
-            Event::Disconnect(reason) => {
+            Event::Application(data) => {
+                println!("Incoming application message: {}", data);
+                boxed!(future::ok(()))
+            },
+            Event::Close(reason) => {
                 println!("Connection was closed: {}", reason);
                 boxed!(future::err(Ok(())))
             }

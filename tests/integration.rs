@@ -30,7 +30,7 @@ use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{Certificate, TlsConnector, Protocol};
 use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::tasks::Task;
-use saltyrtc_task_relayed_data::{RelayedDataTask, Event, RelayedDataError};
+use saltyrtc_task_relayed_data::{RelayedDataTask, Event, OutgoingMessage, RelayedDataError};
 use tokio_core::reactor::{Core, Remote};
 use tokio_timer::Timer;
 
@@ -168,29 +168,44 @@ fn integration_test() {
         (tx_initiator, tx_responder)
     };
 
-    // Test scenario: After connecting, initiator sends a message to the responder.
-    // The responder then replies with two messages. Once the initiator has received
-    // those, it disconnects. The responder should then also disconnect, after receiving
-    // the SaltyRTC 'close' message.
+    // Test scenario: After connecting, initiator sends a message to the responder (1).
+    // The responder then replies with two message (2, 3). Once the initiator has received
+    // those, it replies with an application message (4). The responder responds to
+    // that application message (5) and disconnects. The responder should then also
+    // disconnect, after receiving the SaltyRTC 'close' message.
+
     let rx_loop_responder = rx_responder
         .map_err(|_| Err(RelayedDataError::Channel(("Could not read from rx_responder").into())))
         .for_each(move |ev: Event| match ev {
             Event::Data(data) => {
                 // Verify incoming data
                 assert_eq!(data.as_i64(), Some(1));
+                debug!("R: Received 1");
 
                 // Send response
                 let future = tx_responder
                     .clone()
-                    .send(Value::Integer(2.into()))
-                    .map(|tx| { debug!("Sent 2"); tx })
-                    .and_then(|tx| tx.send(Value::Integer(3.into())))
-                    .map(|tx| { debug!("Sent 3"); tx })
-                    .map(|_tx| ())
+                    .send(OutgoingMessage::Data(Value::Integer(2.into())))
+                    .map(|tx| { debug!("R: Sent 2"); tx })
+                    .and_then(|tx| tx.send(OutgoingMessage::Data(Value::Integer(3.into()))))
+                    .map(|_tx| { debug!("R: Sent 3"); () })
                     .map_err(|e| Err(RelayedDataError::Channel(format!("Could not send message to tx_responder: {}", e))));
                 boxed!(future)
             },
-            Event::Disconnect(reason) => {
+            Event::Application(data) => {
+                // Verify incoming data
+                assert_eq!(data.as_i64(), Some(4));
+                debug!("R: Received 4 (application)");
+
+                // Send response
+                let future = tx_responder
+                    .clone()
+                    .send(OutgoingMessage::Application(Value::Integer(5.into())))
+                    .map(|_tx| { debug!("R: Sent 5 (application)"); () })
+                    .map_err(|e| Err(RelayedDataError::Channel(format!("Could not send message to tx_responder: {}", e))));
+                boxed!(future)
+            },
+            Event::Close(reason) => {
                 assert_eq!(reason, CloseCode::WsGoingAway);
                 boxed!(future::err(Ok(())))
             },
@@ -198,45 +213,64 @@ fn integration_test() {
         .or_else(|e| e)
         .then(|f| { debug!("† rx_loop_responder done"); f });
 
+    let tx_initiator_clone = tx_initiator.clone();
     let rx_loop_initiator = rx_initiator
         .map_err(|_| RelayedDataError::Channel(("Could not read from rx_initiator").into()))
         .for_each(move |ev: Event| match ev {
             Event::Data(data) => {
                 // Verify incoming data
                 match data.as_i64() {
-                    Some(2) => { debug!("Received 2"); /* Ok, wait for 3 */ },
-                    Some(3) => {
-                        debug!("Received 3");
-                        debug!("Done, disconnecting");
-                        task_initiator.lock().unwrap().close(CloseCode::WsGoingAway);
+                    Some(2) => {
+                        debug!("I: Received 2");
+                        /* Ok, wait for 3 */
+                        boxed!(future::ok(()))
                     },
-                    _ => panic!("Received invalid value: {}", data),
-                };
-                future::ok(())
+                    Some(3) => {
+                        debug!("I: Received 3");
+                        boxed!(
+                            tx_initiator_clone
+                                .clone()
+                                .send(OutgoingMessage::Application(Value::Integer(4.into())))
+                                .map(|_| debug!("I: Sent 4 (application)"))
+                                .map_err(|e| RelayedDataError::Channel(e.to_string()))
+                        )
+                    },
+                    _ => panic!("I: Received invalid value: {}", data),
+                }
             },
-            Event::Disconnect(_) => panic!("Initiator should disconnect first!"),
+            Event::Application(data) => match data.as_i64() {
+                Some(5) => {
+                    debug!("I: Received 5 (application)");
+                    debug!("Done, disconnecting");
+                    task_initiator.lock().unwrap().close(CloseCode::WsGoingAway);
+                    boxed!(future::ok(()))
+                },
+                _ => panic!("I: Received invalid application value: {}", data),
+            },
+            Event::Close(_) => panic!("Initiator should disconnect first!"),
         })
         .then(|f| { debug!("† rx_loop_initiator done"); f });
 
     let start = tx_initiator
-        .send(Value::Integer(1.into()))
-        .map(|_| debug!("Sent 1"))
+        .send(OutgoingMessage::Data(Value::Integer(1.into())))
+        .map(|_| debug!("I: Sent 1"))
         .map_err(|e| RelayedDataError::Channel(e.to_string()));
 
     let test_future = start
-        .join(initiator_task_loop.from_err())
-        .join(responder_task_loop.from_err())
-        .join(rx_loop_responder)
-        .join(rx_loop_initiator);
+        .join(initiator_task_loop.from_err().select(rx_loop_initiator).map_err(|(e, _)| e))
+        .join(responder_task_loop.from_err().select(rx_loop_responder).map_err(|(e, _)| e));
 
     // Run futures to completion
     let timer = Timer::default();
     let timeout = timer.sleep(Duration::from_secs(3));
     match core.run(test_future.select2(timeout)) {
-        Ok(_) => {},
+        Ok(res) => match res {
+            future::Either::A(_) => debug!("Success"),
+            future::Either::B(_) => panic!("The test timed out"),
+        },
         Err(e) => match e {
             future::Either::A((task_error, _)) => panic!("A task error occurred: {}", task_error),
-            future::Either::B(_) => panic!("The test timed out"),
+            future::Either::B(_) => panic!("The timeout failed"),
         },
     };
 }
