@@ -217,15 +217,19 @@ fn main() {
     }));
 
     // Connect future
-    let connect_future = saltyrtc_client::connect(
+    let (connect_future, event_channel) = saltyrtc_client::connect(
         server_host,
         server_port,
         Some(tls_connector),
         &core.handle(),
         client.clone(),
     )
-    .unwrap()
-    .and_then(|ws_client| saltyrtc_client::do_handshake(ws_client, client.clone(), None));
+    .unwrap();
+
+    // Handshake future
+    let event_tx = event_channel.clone_tx();
+    let handshake_future = connect_future
+        .and_then(|ws_client| saltyrtc_client::do_handshake(ws_client, client.clone(), event_tx, None));
 
     // Determine QR code payload
     let payload = make_qrcode_payload(
@@ -257,10 +261,11 @@ fn main() {
     }
 
     // Run connect future to completion
-    let ws_client = core.run(connect_future).expect("Could not connect");
+    let ws_client = core.run(handshake_future).expect("Could not connect");
 
     // Setup task loop
-    let (task, task_loop, _event_rx) = saltyrtc_client::task_loop(ws_client, client.clone()).unwrap();
+    let event_tx = event_channel.clone_tx();
+    let (task, task_loop) = saltyrtc_client::task_loop(ws_client, client.clone(), event_tx).unwrap();
 
     // Get access to outgoing channel
     let _outgoing_tx = {

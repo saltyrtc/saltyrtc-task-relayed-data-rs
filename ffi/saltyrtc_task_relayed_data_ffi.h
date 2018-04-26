@@ -391,7 +391,7 @@ salty_client_disconnect_success_t salty_client_disconnect(const salty_channel_di
                                                           uint16_t close_code);
 
 /*
- * Receive an event from the outgoing channel.
+ * Receive an event from the incoming channel.
  *
  * Parameters:
  *     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):

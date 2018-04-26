@@ -788,14 +788,14 @@ pub unsafe extern "C" fn salty_client_connect(
         "Could not create TlsConnector: {}");
 
     // Create connect future
-    let connect_future = match saltyrtc_client::connect(
+    let (connect_future, event_channel) = match saltyrtc_client::connect(
         hostname,
         port,
         Some(tls_connector),
         &core.handle(),
         client_rc_clone1,
     ) {
-        Ok(future) => future,
+        Ok(data) => data,
         Err(e) => {
             error!("Could not create connect future: {}", e);
             return salty_client_connect_success_t::CONNECT_ERROR;
@@ -809,7 +809,12 @@ pub unsafe extern "C" fn salty_client_connect(
         seconds => Some(Duration::from_secs(seconds as u64)),
     };
     let handshake_future = connect_future
-        .and_then(|ws_client| saltyrtc_client::do_handshake(ws_client, client_rc_clone2, timeout));
+        .and_then(|ws_client| saltyrtc_client::do_handshake(
+            ws_client,
+            client_rc_clone2,
+            event_channel.clone_tx(),
+            timeout,
+        ));
 
     // Run handshake future to completion
     let ws_client = match core.run(handshake_future) {
@@ -824,7 +829,11 @@ pub unsafe extern "C" fn salty_client_connect(
     };
 
     // Create task loop future
-    let (task, task_loop, event_rx) = match saltyrtc_client::task_loop(ws_client, client_rc_clone3) {
+    let (task, task_loop) = match saltyrtc_client::task_loop(
+        ws_client,
+        client_rc_clone3,
+        event_channel.clone_tx(),
+    ) {
         Ok(val) => val,
         Err(e) => {
             error!("Could not start task loop: {}", e);
@@ -992,7 +1001,7 @@ pub unsafe extern "C" fn salty_client_send_application_bytes(
     salty_client_send_bytes(OutgoingMessageType::Application, sender_tx, msg, msg_len)
 }
 
-/// Receive an event from the outgoing channel.
+/// Receive an event from the incoming channel.
 ///
 /// Parameters:
 ///     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):

@@ -120,35 +120,53 @@ fn integration_test() {
 
     // Futures to connect to server
     let timeout = Some(Duration::from_secs(2));
-    let connect_initiator = saltyrtc_client::connect(
+    let (connect_initiator, event_channel_initiator) = saltyrtc_client::connect(
             "localhost",
             8765,
             Some(tls_connector.clone()),
             &core.handle(),
             initiator.clone(),
         )
-        .unwrap()
-        .and_then(|client| saltyrtc_client::do_handshake(client, initiator.clone(), timeout));
-    let connect_responder = saltyrtc_client::connect(
+        .unwrap();
+    let handshake_initiator = connect_initiator
+        .and_then(|client| saltyrtc_client::do_handshake(
+            client,
+            initiator.clone(),
+            event_channel_initiator.clone_tx(),
+            timeout,
+        ));
+    let (connect_responder, event_channel_responder) = saltyrtc_client::connect(
             "localhost",
             8765,
             Some(tls_connector.clone()),
             &core.handle(),
             responder.clone(),
         )
-        .unwrap()
-        .and_then(|client| saltyrtc_client::do_handshake(client, responder.clone(), timeout));
+        .unwrap();
+    let handshake_responder = connect_responder
+        .and_then(|client| saltyrtc_client::do_handshake(
+            client,
+            responder.clone(),
+            event_channel_responder.clone_tx(),
+            timeout,
+        ));
 
     // Connect both clients
     let (client_initiator, client_responder): (WsClient, WsClient) = core.run(
-        connect_initiator.join(connect_responder)
+        handshake_initiator.join(handshake_responder)
     ).unwrap();
 
     // Setup task loops
-    let (task_initiator, initiator_task_loop, _event_rx) =
-        saltyrtc_client::task_loop(client_initiator, initiator.clone()).unwrap();
-    let (task_responder, responder_task_loop, _event_rx) =
-        saltyrtc_client::task_loop(client_responder, responder.clone()).unwrap();
+    let (task_initiator, initiator_task_loop) = saltyrtc_client::task_loop(
+        client_initiator,
+        initiator.clone(),
+        event_channel_initiator.clone_tx(),
+    ).unwrap();
+    let (task_responder, responder_task_loop) = saltyrtc_client::task_loop(
+        client_responder,
+        responder.clone(),
+        event_channel_responder.clone_tx(),
+    ).unwrap();
 
     let (tx_initiator, tx_responder) = {
         // Get reference to tasks and downcast them to `RelayedDataTask`.
