@@ -168,35 +168,23 @@ enum salty_client_send_success_t {
 typedef uint8_t salty_client_send_success_t;
 
 /*
- * Possible event types.
+ * Possible message types.
  */
-enum salty_event_type_t {
+enum salty_msg_type_t {
   /*
-   * A connection is being established.
+   * Incoming task message
    */
-  EVENT_CONNECTING = 1,
-  /*
-   * Server handshake completed.
-   */
-  EVENT_SERVER_HANDSHAKE_COMPLETED = 2,
-  /*
-   * Peer handshake completed.
-   */
-  EVENT_PEER_HANDSHAKE_COMPLETED = 3,
-  /*
-   * The connection has ended.
-   */
-  EVENT_DISCONNECTED = 16,
+  MSG_TASK = 1,
   /*
    * Incoming application message.
    */
-  EVENT_INCOMING_APPLICATION_MSG = 254,
+  MSG_APPLICATION = 2,
   /*
-   * Incoming task message.
+   * Incoming close message.
    */
-  EVENT_INCOMING_TASK_MSG = 255,
+  MSG_CLOSE = 3,
 };
-typedef uint8_t salty_event_type_t;
+typedef uint8_t salty_msg_type_t;
 
 /*
  * Result type with all potential error codes.
@@ -330,20 +318,20 @@ typedef struct {
 } salty_client_init_ret_t;
 
 /*
- * An event (e.g. a connectivity change or an incoming message).
+ * A message event.
  *
- * If the event type is `EVENT_INCOMING_*_MSG`, then the `msg_bytes` field will
- * point to the bytes of the decrypted message. Otherwise, the field is `null`.
+ * If the message type is `MSG_TASK` or `MSG_APPLICATION`, then the `msg_bytes` field
+ * will point to the bytes of the decrypted message. Otherwise, the field is `null`.
  *
- * If the event type is `EVENT_DISCONNECTED`, then the `close_code` field will
+ * If the event type is `MSG_CLOSE`, then the `close_code` field will
  * contain the close code. Otherwise, the field is `0`.
  */
 typedef struct {
-  salty_event_type_t event_type;
+  salty_msg_type_t msg_type;
   const uint8_t *msg_bytes;
   uintptr_t msg_bytes_len;
   uint16_t close_code;
-} salty_event_t;
+} salty_msg_t;
 
 /*
  * The return value when trying to receive an event.
@@ -353,7 +341,7 @@ typedef struct {
  */
 typedef struct {
   salty_client_recv_success_t success;
-  const salty_event_t *event;
+  const salty_msg_t *event;
 } salty_client_recv_ret_t;
 
 /*

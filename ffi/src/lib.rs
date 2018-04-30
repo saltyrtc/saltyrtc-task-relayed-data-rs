@@ -280,27 +280,36 @@ pub enum salty_event_type_t {
     /// Peer handshake completed.
     EVENT_PEER_HANDSHAKE_COMPLETED = 0x03,
 
-    /// The connection has ended.
-    EVENT_DISCONNECTED = 0x10,
-
-    /// Incoming application message.
-    EVENT_INCOMING_APPLICATION_MSG = 0xfe,
-
-    /// Incoming task message.
-    EVENT_INCOMING_TASK_MSG = 0xff,
+    /// A peer has disconnected from the server.
+    EVENT_PEER_DISCONNECTED = 0x04,
 }
 
-/// An event (e.g. a connectivity change or an incoming message).
+/// Possible message types.
+#[repr(u8)]
+#[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
+pub enum salty_msg_type_t {
+    /// Incoming task message
+    MSG_TASK = 0x01,
+
+    /// Incoming application message.
+    MSG_APPLICATION = 0x02,
+
+    /// Incoming close message.
+    MSG_CLOSE = 0x03,
+}
+
+/// A message event.
 ///
-/// If the event type is `EVENT_INCOMING_*_MSG`, then the `msg_bytes` field will
-/// point to the bytes of the decrypted message. Otherwise, the field is `null`.
+/// If the message type is `MSG_TASK` or `MSG_APPLICATION`, then the `msg_bytes` field
+/// will point to the bytes of the decrypted message. Otherwise, the field is `null`.
 ///
-/// If the event type is `EVENT_DISCONNECTED`, then the `close_code` field will
+/// If the event type is `MSG_CLOSE`, then the `close_code` field will
 /// contain the close code. Otherwise, the field is `0`.
 #[repr(C)]
 #[no_mangle]
-pub struct salty_event_t {
-    event_type: salty_event_type_t,
+pub struct salty_msg_t {
+    msg_type: salty_msg_type_t,
     msg_bytes: *const uint8_t,
     msg_bytes_len: uintptr_t,
     close_code: uint16_t,
@@ -337,7 +346,7 @@ pub enum salty_client_recv_success_t {
 #[no_mangle]
 pub struct salty_client_recv_ret_t {
     pub success: salty_client_recv_success_t,
-    pub event: *const salty_event_t,
+    pub event: *const salty_msg_t,
 }
 
 
@@ -1197,7 +1206,7 @@ pub unsafe extern "C" fn salty_client_recv_msg(
     fn make_message_event_ret(msg: MessageEvent) -> salty_client_recv_ret_t {
 
         // Another helper function :)
-        fn _data_or_application(val: Value, event_type: salty_event_type_t) -> salty_client_recv_ret_t {
+        fn _data_or_application(val: Value, msg_type: salty_msg_type_t) -> salty_client_recv_ret_t {
             // Encode msgpack bytes
             let bytes: Vec<u8> = match rmps::to_vec_named(&val) {
                 Ok(bytes) => bytes,
@@ -1213,31 +1222,31 @@ pub unsafe extern "C" fn salty_client_recv_msg(
             let bytes_ptr = Box::into_raw(bytes_box);
 
             // Make event struct
-            let event = salty_event_t {
-                event_type,
+            let msg = salty_msg_t {
+                msg_type,
                 msg_bytes: bytes_ptr as *const uint8_t,
                 msg_bytes_len: bytes_len,
                 close_code: 0,
             };
 
             // Get pointer to event on heap
-            let event_ptr = Box::into_raw(Box::new(event));
+            let msg_ptr = Box::into_raw(Box::new(msg));
 
             // TODO: Add function to free allocated memory.
 
             salty_client_recv_ret_t {
                 success: salty_client_recv_success_t::RECV_OK,
-                event: event_ptr,
+                event: msg_ptr,
             }
         }
 
         match msg {
-            MessageEvent::Data(val) => _data_or_application(val, salty_event_type_t::EVENT_INCOMING_TASK_MSG),
-            MessageEvent::Application(val) => _data_or_application(val, salty_event_type_t::EVENT_INCOMING_APPLICATION_MSG),
+            MessageEvent::Data(val) => _data_or_application(val, salty_msg_type_t::MSG_TASK),
+            MessageEvent::Application(val) => _data_or_application(val, salty_msg_type_t::MSG_APPLICATION),
             MessageEvent::Close(close_code) => {
                 // Make event struct
-                let event = salty_event_t {
-                    event_type: salty_event_type_t::EVENT_DISCONNECTED,
+                let event = salty_msg_t {
+                    msg_type: salty_msg_type_t::MSG_CLOSE,
                     msg_bytes: ptr::null(),
                     msg_bytes_len: 0,
                     close_code: close_code.as_number(),
@@ -1305,12 +1314,12 @@ pub unsafe extern "C" fn salty_client_recv_ret_free(recv_ret: salty_client_recv_
         debug!("salty_client_event_free: Event is already null");
         return;
     }
-    let event = Box::from_raw(recv_ret.event as *mut salty_event_t);
-    if !event.msg_bytes.is_null() {
+    let msg = Box::from_raw(recv_ret.event as *mut salty_msg_t);
+    if !msg.msg_bytes.is_null() {
         Vec::from_raw_parts(
-            event.msg_bytes as *mut u8,
-            event.msg_bytes_len,
-            event.msg_bytes_len,
+            msg.msg_bytes as *mut u8,
+            msg.msg_bytes_len,
+            msg.msg_bytes_len,
         );
     }
 }
@@ -1444,7 +1453,7 @@ mod tests {
         assert_eq!(result.event.is_null(), false);
         unsafe {
             let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_TASK_MSG);
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_TASK);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
                 event.msg_bytes as *mut u8,
@@ -1461,7 +1470,7 @@ mod tests {
         assert_eq!(result.event.is_null(), false);
         unsafe {
             let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_APPLICATION_MSG);
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_APPLICATION);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
                 event.msg_bytes as *mut u8,
@@ -1472,13 +1481,13 @@ mod tests {
             assert_eq!(event.close_code, 0);
         }
 
-        // Receive disconnect
+        // Receive close message
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
         assert_eq!(result.event.is_null(), false);
         unsafe {
             let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_DISCONNECTED);
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_CLOSE);
             assert_eq!(event.close_code, 3002);
             assert!(event.msg_bytes.is_null());
             assert_eq!(event.msg_bytes_len, 0);
@@ -1526,7 +1535,7 @@ mod tests {
         assert_eq!(result.event.is_null(), false);
         unsafe {
             let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_DISCONNECTED);
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_CLOSE);
             assert_eq!(event.close_code, 3000);
             assert!(event.msg_bytes.is_null());
             assert_eq!(event.msg_bytes_len, 0);
