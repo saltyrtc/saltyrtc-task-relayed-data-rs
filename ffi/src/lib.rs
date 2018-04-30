@@ -149,8 +149,8 @@ pub enum salty_channel_disconnect_rx_t {}
 pub struct salty_client_init_ret_t {
     pub success: salty_client_init_success_t,
     pub handshake_future: *const salty_handshake_future_t,
-    pub event_rx: *const salty_event_rx_t,
-    pub event_tx: *const salty_event_tx_t,
+    pub event_rx: *const salty_channel_event_rx_t,
+    pub event_tx: *const salty_channel_event_tx_t,
 }
 
 /// A handshake future. This will be passed to the `salty_client_connect`
@@ -166,13 +166,13 @@ pub enum salty_handshake_future_t {}
 ///
 /// On the Rust side, this is an `UnboundedSender<Event>`.
 #[no_mangle]
-pub enum salty_event_tx_t {}
+pub enum salty_channel_event_tx_t {}
 
 /// An event channel (receiving end).
 ///
 /// On the Rust side, this is an `UnboundedReceiver<Event>`.
 #[no_mangle]
-pub enum salty_event_rx_t {}
+pub enum salty_channel_event_rx_t {}
 
 /// Result type with all potential init error codes.
 ///
@@ -716,10 +716,10 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
     Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
 }
 
-/// Free a `salty_event_tx_t` instance.
+/// Free a `salty_channel_event_tx_t` instance.
 #[no_mangle]
-pub unsafe extern "C" fn salty_event_tx_free(
-    ptr: *const salty_event_tx_t,
+pub unsafe extern "C" fn salty_channel_event_tx_free(
+    ptr: *const salty_channel_event_tx_t,
 ) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
@@ -728,10 +728,10 @@ pub unsafe extern "C" fn salty_event_tx_free(
     Box::from_raw(ptr as *mut mpsc::UnboundedSender<Event>);
 }
 
-/// Free a `salty_event_rx_t` instance.
+/// Free a `salty_channel_event_rx_t` instance.
 #[no_mangle]
-pub unsafe extern "C" fn salty_event_rx_free(
-    ptr: *const salty_event_rx_t,
+pub unsafe extern "C" fn salty_channel_event_rx_free(
+    ptr: *const salty_channel_event_rx_t,
 ) {
     if ptr.is_null() {
         warn!("Tried to free a null pointer");
@@ -897,8 +897,8 @@ pub unsafe extern "C" fn salty_client_init(
     salty_client_init_ret_t {
         success: salty_client_init_success_t::INIT_OK,
         handshake_future: Box::into_raw(Box::new(handshake_future_box)) as *const salty_handshake_future_t,
-        event_tx: Box::into_raw(Box::new(event_tx)) as *const salty_event_tx_t,
-        event_rx: Box::into_raw(Box::new(event_rx)) as *const salty_event_rx_t,
+        event_tx: Box::into_raw(Box::new(event_tx)) as *const salty_channel_event_tx_t,
+        event_rx: Box::into_raw(Box::new(event_rx)) as *const salty_channel_event_rx_t,
     }
 }
 
@@ -915,6 +915,9 @@ pub unsafe extern "C" fn salty_client_init(
 ///         Pointer to a `salty_client_t` instance.
 ///     event_loop (`*salty_event_loop_t`, borrowed):
 ///         The event loop that is also associated with the task.
+///     event_tx (`*salty_channel_event_tx_t`, moved):
+///         The sending end of the channel for incoming events.
+///         This object is returned from `salty_client_init`.
 ///     sender_rx (`*salty_channel_sender_rx_t`, moved):
 ///         The receiving end of the channel for outgoing messages.
 ///         This object is returned when creating a client instance.
@@ -926,7 +929,7 @@ pub unsafe extern "C" fn salty_client_connect(
     handshake_future: *const salty_handshake_future_t,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
-    event_tx: *const salty_event_tx_t,
+    event_tx: *const salty_channel_event_tx_t,
     sender_rx: *const salty_channel_sender_rx_t,
     disconnect_rx: *const salty_channel_disconnect_rx_t,
 ) -> salty_client_connect_success_t {

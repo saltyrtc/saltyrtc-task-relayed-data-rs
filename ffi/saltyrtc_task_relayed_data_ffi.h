@@ -246,6 +246,20 @@ typedef struct salty_channel_disconnect_rx_t salty_channel_disconnect_rx_t;
 typedef struct salty_channel_disconnect_tx_t salty_channel_disconnect_tx_t;
 
 /*
+ * An event channel (receiving end).
+ *
+ * On the Rust side, this is an `UnboundedReceiver<Event>`.
+ */
+typedef struct salty_channel_event_rx_t salty_channel_event_rx_t;
+
+/*
+ * An event channel (sending end).
+ *
+ * On the Rust side, this is an `UnboundedSender<Event>`.
+ */
+typedef struct salty_channel_event_tx_t salty_channel_event_tx_t;
+
+/*
  * The channel for receiving incoming messages.
  *
  * On the Rust side, this is an `mpsc::UnboundedReceiver<MessageEvent>`.
@@ -281,20 +295,6 @@ typedef struct salty_client_t salty_client_t;
 typedef struct salty_event_loop_t salty_event_loop_t;
 
 /*
- * An event channel (receiving end).
- *
- * On the Rust side, this is an `UnboundedReceiver<Event>`.
- */
-typedef struct salty_event_rx_t salty_event_rx_t;
-
-/*
- * An event channel (sending end).
- *
- * On the Rust side, this is an `UnboundedSender<Event>`.
- */
-typedef struct salty_event_tx_t salty_event_tx_t;
-
-/*
  * A handshake future. This will be passed to the `salty_client_connect`
  * function.
  *
@@ -325,8 +325,8 @@ typedef struct salty_remote_t salty_remote_t;
 typedef struct {
   salty_client_init_success_t success;
   const salty_handshake_future_t *handshake_future;
-  const salty_event_rx_t *event_rx;
-  const salty_event_tx_t *event_tx;
+  const salty_channel_event_rx_t *event_rx;
+  const salty_channel_event_tx_t *event_tx;
 } salty_client_init_ret_t;
 
 /*
@@ -384,6 +384,16 @@ void salty_channel_disconnect_rx_free(const salty_channel_disconnect_rx_t *ptr);
 void salty_channel_disconnect_tx_free(const salty_channel_disconnect_tx_t *ptr);
 
 /*
+ * Free a `salty_channel_event_rx_t` instance.
+ */
+void salty_channel_event_rx_free(const salty_channel_event_rx_t *ptr);
+
+/*
+ * Free a `salty_channel_event_tx_t` instance.
+ */
+void salty_channel_event_tx_free(const salty_channel_event_tx_t *ptr);
+
+/*
  * Free a `salty_channel_receiver_rx_t` instance.
  */
 void salty_channel_receiver_rx_free(const salty_channel_receiver_rx_t *ptr);
@@ -412,6 +422,9 @@ void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
  *         Pointer to a `salty_client_t` instance.
  *     event_loop (`*salty_event_loop_t`, borrowed):
  *         The event loop that is also associated with the task.
+ *     event_tx (`*salty_channel_event_tx_t`, moved):
+ *         The sending end of the channel for incoming events.
+ *         This object is returned from `salty_client_init`.
  *     sender_rx (`*salty_channel_sender_rx_t`, moved):
  *         The receiving end of the channel for outgoing messages.
  *         This object is returned when creating a client instance.
@@ -422,7 +435,7 @@ void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
 salty_client_connect_success_t salty_client_connect(const salty_handshake_future_t *handshake_future,
                                                     const salty_client_t *client,
                                                     const salty_event_loop_t *event_loop,
-                                                    const salty_event_tx_t *event_tx,
+                                                    const salty_channel_event_tx_t *event_tx,
                                                     const salty_channel_sender_rx_t *sender_rx,
                                                     const salty_channel_disconnect_rx_t *disconnect_rx);
 
@@ -562,16 +575,6 @@ const salty_remote_t *salty_event_loop_get_remote(const salty_event_loop_t *ptr)
  *     In the case of a failure, the error will be logged.
  */
 const salty_event_loop_t *salty_event_loop_new(void);
-
-/*
- * Free a `salty_event_rx_t` instance.
- */
-void salty_event_rx_free(const salty_event_rx_t *ptr);
-
-/*
- * Free a `salty_event_tx_t` instance.
- */
-void salty_event_tx_free(const salty_event_tx_t *ptr);
 
 /*
  * Free a `KeyPair` instance.
