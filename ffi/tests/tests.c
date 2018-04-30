@@ -375,7 +375,7 @@ int main() {
     // Receive message
     printf("  Waiting for message to arrive...\n");
     uint32_t timeout_ms = 10000;
-    const salty_client_recv_ret_t recv_ret = salty_client_recv_event(responder_receiver, &timeout_ms);
+    const salty_client_recv_ret_t recv_ret = salty_client_recv_msg(responder_receiver, &timeout_ms);
     switch (recv_ret.success) {
         case RECV_OK:
             printf("  OK: Message (%lu bytes) from initiator arrived!\n", recv_ret.event->msg_bytes_len);

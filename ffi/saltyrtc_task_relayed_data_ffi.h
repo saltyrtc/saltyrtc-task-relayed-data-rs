@@ -490,11 +490,11 @@ salty_client_init_ret_t salty_client_init(const char *host,
                                           uint32_t ca_cert_len);
 
 /*
- * Receive an event from the incoming channel.
+ * Receive a message from the incoming channel.
  *
  * Parameters:
  *     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):
- *         The receiving end of the channel for incoming events.
+ *         The receiving end of the channel for incoming message events.
  *     timeout_ms (`*uint32_t`, borrowed):
  *         - If this is `null`, then the function call will block.
  *         - If this is `0`, then the function will never block. It will either return an event
@@ -502,8 +502,8 @@ salty_client_init_ret_t salty_client_init(const char *host,
  *         - If this is a value > 0, then the specified timeout in milliseconds will be used.
  *         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
  */
-salty_client_recv_ret_t salty_client_recv_event(const salty_channel_receiver_rx_t *receiver_rx,
-                                                const uint32_t *timeout_ms);
+salty_client_recv_ret_t salty_client_recv_msg(const salty_channel_receiver_rx_t *receiver_rx,
+                                              const uint32_t *timeout_ms);
 
 /*
  * Free a `salty_client_recv_ret_t` instance.
