@@ -34,7 +34,7 @@ jobs:
       # Build and test main crate
       - run:
           name: Build (Rust)
-          command: cargo build
+          command: cargo update && cargo build
       - run:
           name: Test (Rust)
           command: cargo test
