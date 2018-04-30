@@ -338,15 +338,15 @@ pub enum salty_client_recv_success_t {
     RECV_ERROR = 9,
 }
 
-/// The return value when trying to receive an event.
+/// The return value when trying to receive a message.
 ///
-/// Note: Before accessing `event`, make sure to check the `success` field
-/// for errors. If an error occurred, the `event` field will be `null`.
+/// Note: Before accessing `msg`, make sure to check the `success` field
+/// for errors. If an error occurred, the `msg` field will be `null`.
 #[repr(C)]
 #[no_mangle]
-pub struct salty_client_recv_ret_t {
+pub struct salty_client_recv_msg_ret_t {
     pub success: salty_client_recv_success_t,
-    pub event: *const salty_msg_t,
+    pub msg: *const salty_msg_t,
 }
 
 
@@ -366,11 +366,11 @@ fn make_client_create_error(reason: salty_relayed_data_success_t) -> salty_relay
 }
 
 
-/// Helper function to return error values when receiving events.
-fn make_event_recv_error(reason: salty_client_recv_success_t) -> salty_client_recv_ret_t {
-    salty_client_recv_ret_t {
+/// Helper function to return error values when receiving messages.
+fn make_event_recv_msg_error(reason: salty_client_recv_success_t) -> salty_client_recv_msg_ret_t {
+    salty_client_recv_msg_ret_t {
         success: reason,
-        event: ptr::null(),
+        msg: ptr::null(),
     }
 }
 
@@ -1176,11 +1176,11 @@ pub unsafe extern "C" fn salty_client_send_application_bytes(
 pub unsafe extern "C" fn salty_client_recv_msg(
     receiver_rx: *const salty_channel_receiver_rx_t,
     timeout_ms: *const uint32_t,
-) -> salty_client_recv_ret_t {
+) -> salty_client_recv_msg_ret_t {
     // Null checks
     if receiver_rx.is_null() {
         error!("Receiver channel pointer is null");
-        return make_event_recv_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
+        return make_event_recv_msg_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
     }
 
     enum BlockingMode {
@@ -1203,16 +1203,16 @@ pub unsafe extern "C" fn salty_client_recv_msg(
           as &mut mpsc::UnboundedReceiver<MessageEvent>;
 
     // Helper function
-    fn make_message_event_ret(msg: MessageEvent) -> salty_client_recv_ret_t {
+    fn make_message_event_ret(msg: MessageEvent) -> salty_client_recv_msg_ret_t {
 
         // Another helper function :)
-        fn _data_or_application(val: Value, msg_type: salty_msg_type_t) -> salty_client_recv_ret_t {
+        fn _data_or_application(val: Value, msg_type: salty_msg_type_t) -> salty_client_recv_msg_ret_t {
             // Encode msgpack bytes
             let bytes: Vec<u8> = match rmps::to_vec_named(&val) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     error!("Could not encode value: {}", e);
-                    return make_event_recv_error(salty_client_recv_success_t::RECV_ERROR);
+                    return make_event_recv_msg_error(salty_client_recv_success_t::RECV_ERROR);
                 }
             };
 
@@ -1234,9 +1234,9 @@ pub unsafe extern "C" fn salty_client_recv_msg(
 
             // TODO: Add function to free allocated memory.
 
-            salty_client_recv_ret_t {
+            salty_client_recv_msg_ret_t {
                 success: salty_client_recv_success_t::RECV_OK,
-                event: msg_ptr,
+                msg: msg_ptr,
             }
         }
 
@@ -1244,8 +1244,8 @@ pub unsafe extern "C" fn salty_client_recv_msg(
             MessageEvent::Data(val) => _data_or_application(val, salty_msg_type_t::MSG_TASK),
             MessageEvent::Application(val) => _data_or_application(val, salty_msg_type_t::MSG_APPLICATION),
             MessageEvent::Close(close_code) => {
-                // Make event struct
-                let event = salty_msg_t {
+                // Make msg struct
+                let msg = salty_msg_t {
                     msg_type: salty_msg_type_t::MSG_CLOSE,
                     msg_bytes: ptr::null(),
                     msg_bytes_len: 0,
@@ -1253,13 +1253,13 @@ pub unsafe extern "C" fn salty_client_recv_msg(
                 };
 
                 // Get pointer to event on heap
-                let event_ptr = Box::into_raw(Box::new(event));
+                let msg_ptr = Box::into_raw(Box::new(msg));
 
                 // TODO: Add function to free allocated memory.
 
-                salty_client_recv_ret_t {
+                salty_client_recv_msg_ret_t {
                     success: salty_client_recv_success_t::RECV_OK,
-                    event: event_ptr,
+                    msg: msg_ptr,
                 }
             },
         }
@@ -1269,10 +1269,10 @@ pub unsafe extern "C" fn salty_client_recv_msg(
         BlockingMode::BLOCKING => {
             match rx.wait().next() {
                 Some(Ok(msg)) => make_message_event_ret(msg),
-                None => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                None => make_event_recv_msg_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
                 Some(Err(_)) => {
-                    error!("Could not receive event");
-                    make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
+                    error!("Could not receive message");
+                    make_event_recv_msg_error(salty_client_recv_success_t::RECV_ERROR)
                 },
             }
         }
@@ -1282,11 +1282,11 @@ pub unsafe extern "C" fn salty_client_recv_msg(
             let res = nb_future.wait();
             match res {
                 Ok(Some((Some(msg), _))) => make_message_event_ret(msg),
-                Ok(Some((None, _))) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Ok(None) => make_event_recv_error(salty_client_recv_success_t::RECV_NO_DATA),
+                Ok(Some((None, _))) => make_event_recv_msg_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                Ok(None) => make_event_recv_msg_error(salty_client_recv_success_t::RECV_NO_DATA),
                 Err(_) => {
-                    error!("Could not receive event");
-                    make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
+                    error!("Could not receive message");
+                    make_event_recv_msg_error(salty_client_recv_success_t::RECV_ERROR)
                 },
             }
         }
@@ -1296,25 +1296,25 @@ pub unsafe extern "C" fn salty_client_recv_msg(
             let res = rx_future.select2(timeout_future).wait();
             match res {
                 Ok(Either::A(((Some(msg), _), _))) => make_message_event_ret(msg),
-                Ok(Either::A(((None, _), _))) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Ok(Either::B(_)) => make_event_recv_error(salty_client_recv_success_t::RECV_NO_DATA),
+                Ok(Either::A(((None, _), _))) => make_event_recv_msg_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                Ok(Either::B(_)) => make_event_recv_msg_error(salty_client_recv_success_t::RECV_NO_DATA),
                 Err(_) => {
-                    error!("Could not receive event");
-                    make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
+                    error!("Could not receive message");
+                    make_event_recv_msg_error(salty_client_recv_success_t::RECV_ERROR)
                 },
             }
         }
     }
 }
 
-/// Free a `salty_client_recv_ret_t` instance.
+/// Free a `salty_client_recv_msg_ret_t` instance.
 #[no_mangle]
-pub unsafe extern "C" fn salty_client_recv_ret_free(recv_ret: salty_client_recv_ret_t) {
-    if recv_ret.event.is_null() {
-        debug!("salty_client_event_free: Event is already null");
+pub unsafe extern "C" fn salty_client_recv_msg_ret_free(recv_ret: salty_client_recv_msg_ret_t) {
+    if recv_ret.msg.is_null() {
+        debug!("salty_client_recv_msg_ret_free: Message is already null");
         return;
     }
-    let msg = Box::from_raw(recv_ret.event as *mut salty_msg_t);
+    let msg = Box::from_raw(recv_ret.msg as *mut salty_msg_t);
     if !msg.msg_bytes.is_null() {
         Vec::from_raw_parts(
             msg.msg_bytes as *mut u8,
@@ -1450,9 +1450,9 @@ mod tests {
         // Receive task data
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
+            let event = &*result.msg;
             assert_eq!(event.msg_type, salty_msg_type_t::MSG_TASK);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
@@ -1467,9 +1467,9 @@ mod tests {
         // Receive application data
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
+            let event = &*result.msg;
             assert_eq!(event.msg_type, salty_msg_type_t::MSG_APPLICATION);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
@@ -1484,9 +1484,9 @@ mod tests {
         // Receive close message
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
+            let event = &*result.msg;
             assert_eq!(event.msg_type, salty_msg_type_t::MSG_CLOSE);
             assert_eq!(event.close_code, 3002);
             assert!(event.msg_bytes.is_null());
@@ -1532,9 +1532,9 @@ mod tests {
         // Wait again for max 1s, now data from the thread should arrive!
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_1s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
+            let event = &*result.msg;
             assert_eq!(event.msg_type, salty_msg_type_t::MSG_CLOSE);
             assert_eq!(event.close_code, 3000);
             assert!(event.msg_bytes.is_null());

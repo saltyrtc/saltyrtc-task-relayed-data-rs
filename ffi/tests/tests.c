@@ -375,15 +375,15 @@ int main() {
     // Receive message
     printf("  Waiting for message to arrive...\n");
     uint32_t timeout_ms = 10000;
-    const salty_client_recv_ret_t recv_ret = salty_client_recv_msg(responder_receiver, &timeout_ms);
-    switch (recv_ret.success) {
+    const salty_client_recv_msg_ret_t recv_msg_ret = salty_client_recv_msg(responder_receiver, &timeout_ms);
+    switch (recv_msg_ret.success) {
         case RECV_OK:
-            printf("  OK: Message (%lu bytes) from initiator arrived!\n", recv_ret.event->msg_bytes_len);
-            if (recv_ret.event->msg_bytes_len != 4 ||
-                recv_ret.event->msg_bytes[0] != 0x93 ||
-                recv_ret.event->msg_bytes[1] != 0x01 ||
-                recv_ret.event->msg_bytes[2] != 0x02 ||
-                recv_ret.event->msg_bytes[3] != 0x03) {
+            printf("  OK: Message (%lu bytes) from initiator arrived!\n", recv_msg_ret.msg->msg_bytes_len);
+            if (recv_msg_ret.msg->msg_bytes_len != 4 ||
+                recv_msg_ret.msg->msg_bytes[0] != 0x93 ||
+                recv_msg_ret.msg->msg_bytes[1] != 0x01 ||
+                recv_msg_ret.msg->msg_bytes[2] != 0x02 ||
+                recv_msg_ret.msg->msg_bytes[3] != 0x03) {
                 printf("  ERROR: Invalid message received\n");
                 return EXIT_FAILURE;
             } else {
@@ -401,7 +401,7 @@ int main() {
             return EXIT_FAILURE;
     }
     printf("  Freeing received event\n");
-    salty_client_recv_ret_free(recv_ret);
+    salty_client_recv_msg_ret_free(recv_msg_ret);
 
     // Disconnect
     printf("  Disconnecting initiator\n");

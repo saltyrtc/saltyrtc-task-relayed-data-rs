@@ -334,15 +334,15 @@ typedef struct {
 } salty_msg_t;
 
 /*
- * The return value when trying to receive an event.
+ * The return value when trying to receive a message.
  *
- * Note: Before accessing `event`, make sure to check the `success` field
- * for errors. If an error occurred, the `event` field will be `null`.
+ * Note: Before accessing `msg`, make sure to check the `success` field
+ * for errors. If an error occurred, the `msg` field will be `null`.
  */
 typedef struct {
   salty_client_recv_success_t success;
-  const salty_msg_t *event;
-} salty_client_recv_ret_t;
+  const salty_msg_t *msg;
+} salty_client_recv_msg_ret_t;
 
 /*
  * The return value when creating a new client instance.
@@ -490,13 +490,13 @@ salty_client_init_ret_t salty_client_init(const char *host,
  *         - If this is a value > 0, then the specified timeout in milliseconds will be used.
  *         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
  */
-salty_client_recv_ret_t salty_client_recv_msg(const salty_channel_receiver_rx_t *receiver_rx,
-                                              const uint32_t *timeout_ms);
+salty_client_recv_msg_ret_t salty_client_recv_msg(const salty_channel_receiver_rx_t *receiver_rx,
+                                                  const uint32_t *timeout_ms);
 
 /*
- * Free a `salty_client_recv_ret_t` instance.
+ * Free a `salty_client_recv_msg_ret_t` instance.
  */
-void salty_client_recv_ret_free(salty_client_recv_ret_t recv_ret);
+void salty_client_recv_msg_ret_free(salty_client_recv_msg_ret_t recv_ret);
 
 /*
  * Send an application message through the outgoing channel.
