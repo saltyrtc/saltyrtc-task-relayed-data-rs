@@ -84,8 +84,8 @@ void *connect_initiator(void *threadarg) {
     printf("    INITIATOR: Notifying responder that the auth token is ready\n");
     sem_post(&auth_token_set);
 
-    printf("    INITIATOR: Connecting\n");
-    salty_client_connect_success_t connect_success = salty_client_connect(
+    printf("    INITIATOR: Initializing\n");
+    salty_client_init_ret_t init_ret = salty_client_init(
         // Host, port
         "localhost",
         8765,
@@ -93,15 +93,31 @@ void *connect_initiator(void *threadarg) {
         client_ret.client,
         // Event loop
         loop,
-        // Sender channel, receiving end
-        client_ret.sender_rx,
-        // Disconnect channel, receiving end
-        client_ret.disconnect_rx,
         // Timeout seconds
         data->timeout_seconds,
         // CA certificate
         data->ca_cert,
         (uint32_t)data->ca_cert_len
+    );
+    if (init_ret.success != INIT_OK) {
+        printf("      INITIATOR ERROR: Could not initialize connection: %d", init_ret.success);
+        pthread_exit(NULL);
+    }
+
+    printf("    INITIATOR: Connecting\n");
+    salty_client_connect_success_t connect_success = salty_client_connect(
+        // Handshake future
+        init_ret.handshake_future,
+        // Client
+        client_ret.client,
+        // Event loop
+        loop,
+        // Event channel, sending end
+        init_ret.event_tx,
+        // Sender channel, receiving end
+        client_ret.sender_rx,
+        // Disconnect channel, receiving end
+        client_ret.disconnect_rx
     );
 
     printf("    INITIATOR: Connection ended with exit code %d\n", connect_success);
@@ -121,6 +137,7 @@ void *connect_initiator(void *threadarg) {
     printf("    INITIATOR: Freeing channel instances\n");
     salty_channel_receiver_rx_free(client_ret.receiver_rx);
     salty_channel_sender_tx_free(client_ret.sender_tx);
+    salty_event_rx_free(init_ret.event_rx);
 
     printf("  INITIATOR: Freeing event loop\n");
     salty_event_loop_free(loop);
@@ -164,8 +181,8 @@ void *connect_responder(void *threadarg) {
     printf("    RESPONDER: Notifying main thread that the channels are ready\n");
     sem_post(&responder_channels_ready);
 
-    printf("    RESPONDER: Connecting\n");
-    salty_client_connect_success_t connect_success = salty_client_connect(
+    printf("    RESPONDER: Initializing\n");
+    salty_client_init_ret_t init_ret = salty_client_init(
         // Host, port
         "localhost",
         8765,
@@ -173,15 +190,31 @@ void *connect_responder(void *threadarg) {
         client_ret.client,
         // Event loop
         loop,
-        // Sender channel, receiving end
-        client_ret.sender_rx,
-        // Disconnect channel, receiving end
-        client_ret.disconnect_rx,
         // Timeout seconds
         data->timeout_seconds,
         // CA certificate
         data->ca_cert,
         (uint32_t)data->ca_cert_len
+    );
+    if (init_ret.success != INIT_OK) {
+        printf("      RESPONDER ERROR: Could not initialize connection: %d", init_ret.success);
+        pthread_exit(NULL);
+    }
+
+    printf("    RESPONDER: Connecting\n");
+    salty_client_connect_success_t connect_success = salty_client_connect(
+        // Handshake future
+        init_ret.handshake_future,
+        // Client
+        client_ret.client,
+        // Event loop
+        loop,
+        // Event channel, sending end
+        init_ret.event_tx,
+        // Sender channel, receiving end
+        client_ret.sender_rx,
+        // Disconnect channel, receiving end
+        client_ret.disconnect_rx
     );
 
     printf("    RESPONDER: Connection ended with exit code %d\n", connect_success);
@@ -198,6 +231,7 @@ void *connect_responder(void *threadarg) {
     printf("    RESPONDER: Freeing channel instances\n");
     salty_channel_receiver_rx_free(client_ret.receiver_rx);
     salty_channel_sender_tx_free(client_ret.sender_tx);
+    salty_event_rx_free(init_ret.event_rx);
 
     printf("  RESPONDER: Freeing event loop\n");
     salty_event_loop_free(loop);

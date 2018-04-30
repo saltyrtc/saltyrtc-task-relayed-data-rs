@@ -81,6 +81,39 @@ enum salty_client_disconnect_success_t {
 typedef uint8_t salty_client_disconnect_success_t;
 
 /*
+ * Result type with all potential init error codes.
+ *
+ * If no error happened, the value should be `INIT_OK` (0).
+ */
+enum salty_client_init_success_t {
+  /*
+   * No error.
+   */
+  INIT_OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
+  INIT_NULL_ARGUMENT = 1,
+  /*
+   * The hostname is invalid (probably not UTF-8)
+   */
+  INIT_INVALID_HOST = 2,
+  /*
+   * TLS related error
+   */
+  INIT_TLS_ERROR = 3,
+  /*
+   * Certificate related error
+   */
+  INIT_CERTIFICATE_ERROR = 4,
+  /*
+   * Another initialization error
+   */
+  INIT_ERROR = 9,
+};
+typedef uint8_t salty_client_init_success_t;
+
+/*
  * Result type with all potential event receiving error codes.
  *
  * If no error happened, the value should be `RECV_OK` (0).
@@ -215,7 +248,7 @@ typedef struct salty_channel_disconnect_tx_t salty_channel_disconnect_tx_t;
 /*
  * The channel for receiving incoming messages.
  *
- * On the Rust side, this is an `mpsc::UnboundedReceiver<Event>`.
+ * On the Rust side, this is an `mpsc::UnboundedReceiver<MessageEvent>`.
  */
 typedef struct salty_channel_receiver_rx_t salty_channel_receiver_rx_t;
 
@@ -248,6 +281,30 @@ typedef struct salty_client_t salty_client_t;
 typedef struct salty_event_loop_t salty_event_loop_t;
 
 /*
+ * An event channel (receiving end).
+ *
+ * On the Rust side, this is an `UnboundedReceiver<Event>`.
+ */
+typedef struct salty_event_rx_t salty_event_rx_t;
+
+/*
+ * An event channel (sending end).
+ *
+ * On the Rust side, this is an `UnboundedSender<Event>`.
+ */
+typedef struct salty_event_tx_t salty_event_tx_t;
+
+/*
+ * A handshake future. This will be passed to the `salty_client_connect`
+ * function.
+ *
+ * On the Rust side, this is a `Box<Box<Future<Item=WsClient, Error=SaltyError>>>`.
+ * The double box is used because the inner box is actually a trait object fat
+ * pointer, pointing to both the data and the vtable.
+ */
+typedef struct salty_handshake_future_t salty_handshake_future_t;
+
+/*
  * A key pair.
  */
 typedef struct salty_keypair_t salty_keypair_t;
@@ -258,6 +315,19 @@ typedef struct salty_keypair_t salty_keypair_t;
  * This type is thread safe.
  */
 typedef struct salty_remote_t salty_remote_t;
+
+/*
+ * The return value when initializing a connection.
+ *
+ * Note: Before accessing `connect_future`, make sure to check the `success`
+ * field for errors. If an error occurred, the other fields will be `null`.
+ */
+typedef struct {
+  salty_client_init_success_t success;
+  const salty_handshake_future_t *handshake_future;
+  const salty_event_rx_t *event_rx;
+  const salty_event_tx_t *event_tx;
+} salty_client_init_ret_t;
 
 /*
  * An event (e.g. a connectivity change or an incoming message).
@@ -336,10 +406,8 @@ void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
  * You should probably run this in a separate thread.
  *
  * Parameters:
- *     host (`*c_char`, null terminated, borrowed):
- *         Null terminated UTF-8 encoded C string containing the SaltyRTC server hostname.
- *     port (`*uint16_t`, copied):
- *         SaltyRTC server port.
+ *     handshake_future (`*salty_handshake_future_t`, moved):
+ *         Pointer to the handshake future, created with `salty_client_init`.
  *     client (`*salty_client_t`, borrowed):
  *         Pointer to a `salty_client_t` instance.
  *     event_loop (`*salty_event_loop_t`, borrowed):
@@ -350,24 +418,13 @@ void salty_channel_sender_tx_free(const salty_channel_sender_tx_t *ptr);
  *     disconnect_rx (`*salty_channel_disconnect_rx_t`, moved):
  *         The receiving end of the channel for closing the connection.
  *         This object is returned when creating a client instance.
- *     timeout_s (`uint16_t`, copied):
- *         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
- *     ca_cert (`*uint8_t` or `NULL`, borrowed):
- *         Optional pointer to bytes of a DER encoded CA certificate.
- *         When no certificate is set, the OS trust chain is used.
- *     ca_cert_len (`uint32_t`, copied):
- *         When the `ca_cert` argument is not `NULL`, then this must be
- *         set to the number of certificate bytes. Otherwise, set it to 0.
  */
-salty_client_connect_success_t salty_client_connect(const char *host,
-                                                    uint16_t port,
+salty_client_connect_success_t salty_client_connect(const salty_handshake_future_t *handshake_future,
                                                     const salty_client_t *client,
                                                     const salty_event_loop_t *event_loop,
+                                                    const salty_event_tx_t *event_tx,
                                                     const salty_channel_sender_rx_t *sender_rx,
-                                                    const salty_channel_disconnect_rx_t *disconnect_rx,
-                                                    uint16_t timeout_s,
-                                                    const uint8_t *ca_cert,
-                                                    uint32_t ca_cert_len);
+                                                    const salty_channel_disconnect_rx_t *disconnect_rx);
 
 /*
  * Close the connection.
@@ -391,6 +448,35 @@ salty_client_disconnect_success_t salty_client_disconnect(const salty_channel_di
                                                           uint16_t close_code);
 
 /*
+ * Prepare a connection to the specified SaltyRTC server, but do not connect yet.
+ *
+ * Parameters:
+ *     host (`*c_char`, null terminated, borrowed):
+ *         Null terminated UTF-8 encoded C string containing the SaltyRTC server hostname.
+ *     port (`*uint16_t`, copied):
+ *         SaltyRTC server port.
+ *     client (`*salty_client_t`, borrowed):
+ *         Pointer to a `salty_client_t` instance.
+ *     event_loop (`*salty_event_loop_t`, borrowed):
+ *         The event loop that is also associated with the task.
+ *     timeout_s (`uint16_t`, copied):
+ *         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
+ *     ca_cert (`*uint8_t` or `NULL`, borrowed):
+ *         Optional pointer to bytes of a DER encoded CA certificate.
+ *         When no certificate is set, the OS trust chain is used.
+ *     ca_cert_len (`uint32_t`, copied):
+ *         When the `ca_cert` argument is not `NULL`, then this must be
+ *         set to the number of certificate bytes. Otherwise, set it to 0.
+ */
+salty_client_init_ret_t salty_client_init(const char *host,
+                                          uint16_t port,
+                                          const salty_client_t *client,
+                                          const salty_event_loop_t *event_loop,
+                                          uint16_t timeout_s,
+                                          const uint8_t *ca_cert,
+                                          uint32_t ca_cert_len);
+
+/*
  * Receive an event from the incoming channel.
  *
  * Parameters:
@@ -407,7 +493,7 @@ salty_client_recv_ret_t salty_client_recv_event(const salty_channel_receiver_rx_
                                                 const uint32_t *timeout_ms);
 
 /*
- * Free an event loop instance.
+ * Free a `salty_client_recv_ret_t` instance.
  */
 void salty_client_recv_ret_free(salty_client_recv_ret_t recv_ret);
 
@@ -476,6 +562,16 @@ const salty_remote_t *salty_event_loop_get_remote(const salty_event_loop_t *ptr)
  *     In the case of a failure, the error will be logged.
  */
 const salty_event_loop_t *salty_event_loop_new(void);
+
+/*
+ * Free a `salty_event_rx_t` instance.
+ */
+void salty_event_rx_free(const salty_event_rx_t *ptr);
+
+/*
+ * Free a `salty_event_tx_t` instance.
+ */
+void salty_event_tx_free(const salty_event_tx_t *ptr);
 
 /*
  * Free a `KeyPair` instance.
