@@ -52,7 +52,7 @@ pub struct RelayedDataTask {
 
     /// The sending end of a channel to send incoming messages and events to
     /// the task user.
-    incoming_tx: UnboundedSender<Event>,
+    incoming_tx: UnboundedSender<MessageEvent>,
 }
 
 #[derive(Debug)]
@@ -68,9 +68,9 @@ pub struct ConnectionContext {
     disconnect_tx: OneshotSender<Option<CloseCode>>,
 }
 
-/// An incoming event.
+/// An incoming message event.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Event {
+pub enum MessageEvent {
     Data(Value),
     Application(Value),
     Close(CloseCode),
@@ -84,7 +84,7 @@ pub enum OutgoingMessage {
 }
 
 impl RelayedDataTask {
-    pub fn new(remote: Remote, incoming_tx: UnboundedSender<Event>) -> Self {
+    pub fn new(remote: Remote, incoming_tx: UnboundedSender<MessageEvent>) -> Self {
         RelayedDataTask {
             remote,
             state: State::Stopped,
@@ -152,7 +152,7 @@ impl Task for RelayedDataTask {
                         return boxed!(
                             user_incoming_tx
                                 .clone()
-                                .send(Event::Application(data))
+                                .send(MessageEvent::Application(data))
                                 .map(|_| ()) // TODO
                                 .map_err(|_| ()) // TODO
                         );
@@ -163,7 +163,7 @@ impl Task for RelayedDataTask {
                         return boxed!(
                             user_incoming_tx
                                 .clone()
-                                .send(Event::Close(reason))
+                                .send(MessageEvent::Close(reason))
                                 .map(|_| ())
                                 .map_err(|_| ())
                         );
@@ -186,7 +186,7 @@ impl Task for RelayedDataTask {
                         debug!("Sending {} message payload through channel", TYPE_DATA);
                         handle.spawn(
                             user_incoming_tx
-                                .send(Event::Data(payload.clone()))
+                                .send(MessageEvent::Data(payload.clone()))
                                 .map(|_| ()) // TODO
                                 .map_err(|_| ()) // TODO
                         )
