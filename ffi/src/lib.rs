@@ -45,7 +45,7 @@ use std::time::Duration;
 
 use libc::{uint8_t, uint16_t, uint32_t, uintptr_t, c_char};
 use rmp_serde as rmps;
-use saltyrtc_client::{SaltyClient, SaltyClientBuilder, CloseCode};
+use saltyrtc_client::{SaltyClient, SaltyClientBuilder, CloseCode, WsClient, Event};
 use saltyrtc_client::crypto::{KeyPair, PublicKey, AuthToken};
 use saltyrtc_client::dep::futures::{Future, Stream, Sink};
 use saltyrtc_client::dep::futures::future::Either;
@@ -53,9 +53,10 @@ use saltyrtc_client::dep::futures::sync::{mpsc, oneshot};
 use saltyrtc_client::dep::native_tls::{TlsConnector, Protocol, Certificate};
 use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::dep::rmpv::decode::read_value;
+use saltyrtc_client::errors::SaltyError;
 use saltyrtc_client::tasks::{BoxedTask, Task};
 pub use saltyrtc_client_ffi::{salty_client_t, salty_keypair_t, salty_remote_t, salty_event_loop_t};
-use saltyrtc_task_relayed_data::{RelayedDataTask, Event, OutgoingMessage};
+use saltyrtc_task_relayed_data::{RelayedDataTask, MessageEvent, OutgoingMessage};
 use tokio_core::reactor::{Core, Remote};
 use tokio_timer::Timer;
 
@@ -110,7 +111,7 @@ pub struct salty_relayed_data_client_ret_t {
 
 /// The channel for receiving incoming messages.
 ///
-/// On the Rust side, this is an `mpsc::UnboundedReceiver<Event>`.
+/// On the Rust side, this is an `mpsc::UnboundedReceiver<MessageEvent>`.
 #[no_mangle]
 pub enum salty_channel_receiver_rx_t {}
 
@@ -137,6 +138,67 @@ pub enum salty_channel_disconnect_tx_t {}
 /// On the Rust side, this is an `oneshot::Receiver<CloseCode>`.
 #[no_mangle]
 pub enum salty_channel_disconnect_rx_t {}
+
+
+/// The return value when initializing a connection.
+///
+/// Note: Before accessing `connect_future`, make sure to check the `success`
+/// field for errors. If an error occurred, the other fields will be `null`.
+#[repr(C)]
+#[no_mangle]
+pub struct salty_client_init_ret_t {
+    pub success: salty_client_init_success_t,
+    pub handshake_future: *const salty_handshake_future_t,
+    pub event_rx: *const salty_channel_event_rx_t,
+    pub event_tx: *const salty_channel_event_tx_t,
+}
+
+/// A handshake future. This will be passed to the `salty_client_connect`
+/// function.
+///
+/// On the Rust side, this is a `Box<Box<Future<Item=WsClient, Error=SaltyError>>>`.
+/// The double box is used because the inner box is actually a trait object fat
+/// pointer, pointing to both the data and the vtable.
+#[no_mangle]
+pub enum salty_handshake_future_t {}
+
+/// An event channel (sending end).
+///
+/// On the Rust side, this is an `UnboundedSender<Event>`.
+#[no_mangle]
+pub enum salty_channel_event_tx_t {}
+
+/// An event channel (receiving end).
+///
+/// On the Rust side, this is an `UnboundedReceiver<Event>`.
+#[no_mangle]
+pub enum salty_channel_event_rx_t {}
+
+/// Result type with all potential init error codes.
+///
+/// If no error happened, the value should be `INIT_OK` (0).
+#[repr(u8)]
+#[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
+pub enum salty_client_init_success_t {
+    /// No error.
+    INIT_OK = 0,
+
+    /// One of the arguments was a `null` pointer.
+    INIT_NULL_ARGUMENT = 1,
+
+    /// The hostname is invalid (probably not UTF-8)
+    INIT_INVALID_HOST = 2,
+
+    /// TLS related error
+    INIT_TLS_ERROR = 3,
+
+    /// Certificate related error
+    INIT_CERTIFICATE_ERROR = 4,
+
+    /// Another initialization error
+    INIT_ERROR = 9,
+}
 
 /// Result type with all potential connection error codes.
 ///
@@ -204,6 +266,37 @@ pub enum salty_client_send_success_t {
     SEND_ERROR = 9,
 }
 
+/// Possible message types.
+#[repr(u8)]
+#[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
+pub enum salty_msg_type_t {
+    /// Incoming task message
+    MSG_TASK = 0x01,
+
+    /// Incoming application message.
+    MSG_APPLICATION = 0x02,
+
+    /// Incoming close message.
+    MSG_CLOSE = 0x03,
+}
+
+/// A message event.
+///
+/// If the message type is `MSG_TASK` or `MSG_APPLICATION`, then the `msg_bytes` field
+/// will point to the bytes of the decrypted message. Otherwise, the field is `null`.
+///
+/// If the event type is `MSG_CLOSE`, then the `close_code` field will
+/// contain the close code. Otherwise, the field is `0`.
+#[repr(C)]
+#[no_mangle]
+pub struct salty_msg_t {
+    msg_type: salty_msg_type_t,
+    msg_bytes: *const uint8_t,
+    msg_bytes_len: uintptr_t,
+    close_code: uint16_t,
+}
+
 /// Possible event types.
 #[repr(u8)]
 #[no_mangle]
@@ -218,30 +311,25 @@ pub enum salty_event_type_t {
     /// Peer handshake completed.
     EVENT_PEER_HANDSHAKE_COMPLETED = 0x03,
 
-    /// The connection has ended.
-    EVENT_DISCONNECTED = 0x10,
-
-    /// Incoming application message.
-    EVENT_INCOMING_APPLICATION_MSG = 0xfe,
-
-    /// Incoming task message.
-    EVENT_INCOMING_TASK_MSG = 0xff,
+    /// A peer has disconnected from the server.
+    EVENT_PEER_DISCONNECTED = 0x04,
 }
 
-/// An event (e.g. a connectivity change or an incoming message).
+/// An event.
 ///
-/// If the event type is `EVENT_INCOMING_*_MSG`, then the `msg_bytes` field will
-/// point to the bytes of the decrypted message. Otherwise, the field is `null`.
+/// If the event type is `EVENT_SERVER_HANDSHAKE_COMPLETED`, then the
+/// `peer_connected` field will contain a boolean indicating whether or not a
+/// peer is already connected to the server or not. Otherwise, the field is
+/// always `false` and should be ignored.
 ///
-/// If the event type is `EVENT_DISCONNECTED`, then the `close_code` field will
-/// contain the close code. Otherwise, the field is `0`.
+/// If the event type is `EVENT_PEER_DISCONNECTED`, then the `peer_id` field
+/// will contain the peer id. Otherwise, the field is `0`.
 #[repr(C)]
 #[no_mangle]
 pub struct salty_event_t {
     event_type: salty_event_type_t,
-    msg_bytes: *const uint8_t,
-    msg_bytes_len: uintptr_t,
-    close_code: uint16_t,
+    peer_connected: bool,
+    peer_id: uint8_t,
 }
 
 /// Result type with all potential event receiving error codes.
@@ -267,13 +355,24 @@ pub enum salty_client_recv_success_t {
     RECV_ERROR = 9,
 }
 
+/// The return value when trying to receive a message.
+///
+/// Note: Before accessing `msg`, make sure to check the `success` field
+/// for errors. If an error occurred, the `msg` field will be `null`.
+#[repr(C)]
+#[no_mangle]
+pub struct salty_client_recv_msg_ret_t {
+    pub success: salty_client_recv_success_t,
+    pub msg: *const salty_msg_t,
+}
+
 /// The return value when trying to receive an event.
 ///
 /// Note: Before accessing `event`, make sure to check the `success` field
 /// for errors. If an error occurred, the `event` field will be `null`.
 #[repr(C)]
 #[no_mangle]
-pub struct salty_client_recv_ret_t {
+pub struct salty_client_recv_event_ret_t {
     pub success: salty_client_recv_success_t,
     pub event: *const salty_event_t,
 }
@@ -294,18 +393,9 @@ fn make_client_create_error(reason: salty_relayed_data_success_t) -> salty_relay
     }
 }
 
-
-/// Helper function to return error values when receiving events.
-fn make_event_recv_error(reason: salty_client_recv_success_t) -> salty_client_recv_ret_t {
-    salty_client_recv_ret_t {
-        success: reason,
-        event: ptr::null(),
-    }
-}
-
 struct ClientBuilderRet {
     builder: SaltyClientBuilder,
-    receiver_rx: mpsc::UnboundedReceiver<Event>,
+    receiver_rx: mpsc::UnboundedReceiver<MessageEvent>,
     sender_tx: mpsc::UnboundedSender<OutgoingMessage>,
     sender_rx: mpsc::UnboundedReceiver<OutgoingMessage>,
     disconnect_tx: oneshot::Sender<CloseCode>,
@@ -603,7 +693,7 @@ pub unsafe extern "C" fn salty_channel_receiver_rx_free(
         warn!("Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Event>);
+    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<MessageEvent>);
 }
 
 /// Free a `salty_channel_sender_tx_t` instance.
@@ -654,14 +744,34 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
     Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
 }
 
+/// Free a `salty_channel_event_tx_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_channel_event_tx_free(
+    ptr: *const salty_channel_event_tx_t,
+) {
+    if ptr.is_null() {
+        warn!("Tried to free a null pointer");
+        return;
+    }
+    Box::from_raw(ptr as *mut mpsc::UnboundedSender<Event>);
+}
+
+/// Free a `salty_channel_event_rx_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_channel_event_rx_free(
+    ptr: *const salty_channel_event_rx_t,
+) {
+    if ptr.is_null() {
+        warn!("Tried to free a null pointer");
+        return;
+    }
+    Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Event>);
+}
+
 
 // *** CONNECTION *** //
 
-/// Connect to the specified SaltyRTC server, do the server and peer handshake
-/// and run the task loop.
-///
-/// This is a blocking call. It will end once the connection has been terminated.
-/// You should probably run this in a separate thread.
+/// Prepare a connection to the specified SaltyRTC server, but do not connect yet.
 ///
 /// Parameters:
 ///     host (`*c_char`, null terminated, borrowed):
@@ -672,12 +782,6 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
 ///         Pointer to a `salty_client_t` instance.
 ///     event_loop (`*salty_event_loop_t`, borrowed):
 ///         The event loop that is also associated with the task.
-///     sender_rx (`*salty_channel_sender_rx_t`, moved):
-///         The receiving end of the channel for outgoing messages.
-///         This object is returned when creating a client instance.
-///     disconnect_rx (`*salty_channel_disconnect_rx_t`, moved):
-///         The receiving end of the channel for closing the connection.
-///         This object is returned when creating a client instance.
 ///     timeout_s (`uint16_t`, copied):
 ///         Connection and handshake timeout in seconds. Set value to `0` for no timeout.
 ///     ca_cert (`*uint8_t` or `NULL`, borrowed):
@@ -687,39 +791,39 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
 ///         When the `ca_cert` argument is not `NULL`, then this must be
 ///         set to the number of certificate bytes. Otherwise, set it to 0.
 #[no_mangle]
-pub unsafe extern "C" fn salty_client_connect(
+pub unsafe extern "C" fn salty_client_init(
     host: *const c_char,
     port: uint16_t,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
-    sender_rx: *const salty_channel_sender_rx_t,
-    disconnect_rx: *const salty_channel_disconnect_rx_t,
     timeout_s: uint16_t,
     ca_cert: *const uint8_t,
     ca_cert_len: uint32_t,
-) -> salty_client_connect_success_t {
-    trace!("salty_client_connect: Initializing");
+) -> salty_client_init_ret_t {
+    trace!("salty_client_init: Initializing");
+
+    // Helper function to return errors.
+    fn make_init_ret_error(success: salty_client_init_success_t) -> salty_client_init_ret_t {
+        salty_client_init_ret_t {
+            success,
+            handshake_future: ptr::null(),
+            event_rx: ptr::null(),
+            event_tx: ptr::null(),
+        }
+    }
 
     // Null pointer checks
     if host.is_null() {
         error!("Hostname pointer is null");
-        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+        return make_init_ret_error(salty_client_init_success_t::INIT_NULL_ARGUMENT);
     }
     if client.is_null() {
         error!("Client pointer is null");
-        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+        return make_init_ret_error(salty_client_init_success_t::INIT_NULL_ARGUMENT);
     }
     if event_loop.is_null() {
         error!("Event loop pointer is null");
-        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
-    }
-    if sender_rx.is_null() {
-        error!("Sender RX channel pointer is null");
-        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
-    }
-    if disconnect_rx.is_null() {
-        error!("Disconnect RX channel pointer is null");
-        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+        return make_init_ret_error(salty_client_init_success_t::INIT_NULL_ARGUMENT);
     }
 
     // Get host string
@@ -727,7 +831,7 @@ pub unsafe extern "C" fn salty_client_connect(
         Ok(host) => host,
         Err(_) => {
             error!("host argument is not valid UTF-8");
-            return salty_client_connect_success_t::CONNECT_INVALID_HOST;
+            return make_init_ret_error(salty_client_init_success_t::INIT_INVALID_HOST);
         },
     };
 
@@ -735,17 +839,12 @@ pub unsafe extern "C" fn salty_client_connect(
     let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
 
     // Clone RC so that the client instance can be reused
-    let client_rc_clone1 = client_rc.clone();
-    let client_rc_clone2 = client_rc.clone();
-    let client_rc_clone3 = client_rc.clone();
+    let client_rc_connect = client_rc.clone();
+    let client_rc_handshake = client_rc.clone();
     mem::forget(client_rc);
 
     // Get event loop reference
     let core = &mut *(event_loop as *mut Core) as &mut Core;
-
-    // Get channel sender instances
-    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<OutgoingMessage>);
-    let disconnect_rx_box = Box::from_raw(disconnect_rx as *mut oneshot::Receiver<CloseCode>);
 
     // Read CA certificate (if present)
     let ca_cert_opt: Option<Certificate> = if ca_cert.is_null() {
@@ -758,7 +857,7 @@ pub unsafe extern "C" fn salty_client_connect(
             Ok(cert) => cert,
             Err(e) => {
                 error!("Could not parse DER encoded CA certificate: {}", e);
-                return salty_client_connect_success_t::CONNECT_CERTIFICATE_ERROR;
+                return make_init_ret_error(salty_client_init_success_t::INIT_CERTIFICATE_ERROR);
             }
         })
     };
@@ -770,7 +869,7 @@ pub unsafe extern "C" fn salty_client_connect(
                 Ok(val) => val,
                 Err(e) => {
                     error!($errmsg, e);
-                    return salty_client_connect_success_t::CONNECT_TLS_ERROR;
+                    return make_init_ret_error(salty_client_init_success_t::INIT_TLS_ERROR);
                 }
             }
         }}
@@ -793,31 +892,111 @@ pub unsafe extern "C" fn salty_client_connect(
         port,
         Some(tls_connector),
         &core.handle(),
-        client_rc_clone1,
+        client_rc_connect,
     ) {
         Ok(data) => data,
         Err(e) => {
             error!("Could not create connect future: {}", e);
-            return salty_client_connect_success_t::CONNECT_ERROR;
+            return make_init_ret_error(salty_client_init_success_t::INIT_ERROR);
         },
     };
 
+    // Forget about reactor core
+    mem::forget(core);
+
+    // Split event channel
+    let (event_tx, event_rx) = event_channel.split();
+
     // Create handshake future
-    // After connecting to server, do handshake
     let timeout = match timeout_s {
         0 => None,
         seconds => Some(Duration::from_secs(seconds as u64)),
     };
+    let event_tx_clone = event_tx.clone();
     let handshake_future = connect_future
-        .and_then(|ws_client| saltyrtc_client::do_handshake(
+        .and_then(move |ws_client| saltyrtc_client::do_handshake(
             ws_client,
-            client_rc_clone2,
-            event_channel.clone_tx(),
+            client_rc_handshake,
+            event_tx_clone,
             timeout,
         ));
+    let handshake_future_box: Box<Future<Item=WsClient, Error=SaltyError>> = Box::new(handshake_future);
+
+    salty_client_init_ret_t {
+        success: salty_client_init_success_t::INIT_OK,
+        handshake_future: Box::into_raw(Box::new(handshake_future_box)) as *const salty_handshake_future_t,
+        event_tx: Box::into_raw(Box::new(event_tx)) as *const salty_channel_event_tx_t,
+        event_rx: Box::into_raw(Box::new(event_rx)) as *const salty_channel_event_rx_t,
+    }
+}
+
+/// Connect to the specified SaltyRTC server, do the server and peer handshake
+/// and run the task loop.
+///
+/// This is a blocking call. It will end once the connection has been terminated.
+/// You should probably run this in a separate thread.
+///
+/// Parameters:
+///     handshake_future (`*salty_handshake_future_t`, moved):
+///         Pointer to the handshake future, created with `salty_client_init`.
+///     client (`*salty_client_t`, borrowed):
+///         Pointer to a `salty_client_t` instance.
+///     event_loop (`*salty_event_loop_t`, borrowed):
+///         The event loop that is also associated with the task.
+///     event_tx (`*salty_channel_event_tx_t`, moved):
+///         The sending end of the channel for incoming events.
+///         This object is returned from `salty_client_init`.
+///     sender_rx (`*salty_channel_sender_rx_t`, moved):
+///         The receiving end of the channel for outgoing messages.
+///         This object is returned when creating a client instance.
+///     disconnect_rx (`*salty_channel_disconnect_rx_t`, moved):
+///         The receiving end of the channel for closing the connection.
+///         This object is returned when creating a client instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_connect(
+    handshake_future: *const salty_handshake_future_t,
+    client: *const salty_client_t,
+    event_loop: *const salty_event_loop_t,
+    event_tx: *const salty_channel_event_tx_t,
+    sender_rx: *const salty_channel_sender_rx_t,
+    disconnect_rx: *const salty_channel_disconnect_rx_t,
+) -> salty_client_connect_success_t {
+    trace!("salty_client_connect: Initializing");
+
+    // Null pointer checks
+    if sender_rx.is_null() {
+        error!("Sender RX channel pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
+    if disconnect_rx.is_null() {
+        error!("Disconnect RX channel pointer is null");
+        return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
+    }
+
+    // Recreate client RC
+    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
+
+    // Clone RC so that the client instance can be reused
+    let client_rc_task_loop = client_rc.clone();
+    mem::forget(client_rc);
+
+    // Get event loop reference
+    let core = &mut *(event_loop as *mut Core) as &mut Core;
+
+    // Get event channel sender reference
+    let event_tx_box = Box::from_raw(event_tx as *mut mpsc::UnboundedSender<Event>);
+
+    // Get handshake future reference
+    let handshake_future_box = Box::from_raw(
+        handshake_future as *mut Box<Future<Item=WsClient, Error=SaltyError>>
+    );
+
+    // Get channel sender instances
+    let sender_rx_box = Box::from_raw(sender_rx as *mut mpsc::UnboundedReceiver<OutgoingMessage>);
+    let disconnect_rx_box = Box::from_raw(disconnect_rx as *mut oneshot::Receiver<CloseCode>);
 
     // Run handshake future to completion
-    let ws_client = match core.run(handshake_future) {
+    let ws_client = match core.run(*handshake_future_box) {
         Ok(ws_client) => {
             info!("Handshake done");
             ws_client
@@ -831,8 +1010,8 @@ pub unsafe extern "C" fn salty_client_connect(
     // Create task loop future
     let (task, task_loop) = match saltyrtc_client::task_loop(
         ws_client,
-        client_rc_clone3,
-        event_channel.clone_tx(),
+        client_rc_task_loop,
+        *event_tx_box,
     ) {
         Ok(val) => val,
         Err(e) => {
@@ -1001,11 +1180,91 @@ pub unsafe extern "C" fn salty_client_send_application_bytes(
     salty_client_send_bytes(OutgoingMessageType::Application, sender_tx, msg, msg_len)
 }
 
-/// Receive an event from the incoming channel.
+enum BlockingMode {
+    BLOCKING,
+    NONBLOCKING,
+    TIMEOUT(Duration),
+}
+
+impl BlockingMode {
+    unsafe fn from_timeout_ms(timeout_ms: *const uint32_t) -> Self {
+        if timeout_ms == ptr::null() {
+            BlockingMode::BLOCKING
+        } else if *timeout_ms == 0 {
+            BlockingMode::NONBLOCKING
+        } else {
+            BlockingMode::TIMEOUT(Duration::from_millis(*timeout_ms as u64))
+        }
+    }
+
+    /// Receive somedata through a channel receiver.
+    ///
+    /// Type arguments:
+    ///
+    /// - D: The type coming in through the channel receiver.
+    /// - T: The return type of this function.
+    /// - P: The function processing incoming data.
+    /// - E: The function creating error results.
+    fn recv<D, T, P, E>(
+        &self,
+        content_type: &str,
+        rx: &mut mpsc::UnboundedReceiver<D>,
+        process_data: P,
+        make_error: E,
+    ) -> T
+    where
+        P: FnOnce(D) -> T,
+        E: FnOnce(salty_client_recv_success_t) -> T,
+    {
+        match *self {
+            BlockingMode::BLOCKING => {
+                match rx.wait().next() {
+                    Some(Ok(data)) => process_data(data),
+                    None => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                    Some(Err(_)) => {
+                        error!("Could not receive {}", content_type);
+                        make_error(salty_client_recv_success_t::RECV_ERROR)
+                    },
+                }
+            }
+            BlockingMode::NONBLOCKING => {
+                let mut rx_future = rx.into_future();
+                let nb_future = nonblocking::new(&mut rx_future);
+                let res = nb_future.wait();
+                match res {
+                    Ok(Some((Some(data), _))) => process_data(data),
+                    Ok(Some((None, _))) => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                    Ok(None) => make_error(salty_client_recv_success_t::RECV_NO_DATA),
+                    Err(_) => {
+                        error!("Could not receive {}", content_type);
+                        make_error(salty_client_recv_success_t::RECV_ERROR)
+                    },
+                }
+            }
+            BlockingMode::TIMEOUT(duration) => {
+                let timeout_future = Timer::default().sleep(duration).map_err(|_| ());
+                let rx_future = rx.into_future();
+                let res = rx_future.select2(timeout_future).wait();
+                match res {
+                    Ok(Either::A(((Some(data), _), _))) => process_data(data),
+                    Ok(Either::A(((None, _), _))) => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                    Ok(Either::B(_)) => make_error(salty_client_recv_success_t::RECV_NO_DATA),
+                    Err(_) => {
+                        error!("Could not receive {}", content_type);
+                        make_error(salty_client_recv_success_t::RECV_ERROR)
+                    },
+                }
+            }
+        }
+    }
+}
+
+
+/// Receive a message from the incoming channel.
 ///
 /// Parameters:
 ///     receiver_rx (`*salty_channel_receiver_rx_t`, borrowed):
-///         The receiving end of the channel for incoming events.
+///         The receiving end of the channel for incoming message events.
 ///     timeout_ms (`*uint32_t`, borrowed):
 ///         - If this is `null`, then the function call will block.
 ///         - If this is `0`, then the function will never block. It will either return an event
@@ -1013,46 +1272,27 @@ pub unsafe extern "C" fn salty_client_send_application_bytes(
 ///         - If this is a value > 0, then the specified timeout in milliseconds will be used.
 ///         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
 #[no_mangle]
-pub unsafe extern "C" fn salty_client_recv_event(
+pub unsafe extern "C" fn salty_client_recv_msg(
     receiver_rx: *const salty_channel_receiver_rx_t,
     timeout_ms: *const uint32_t,
-) -> salty_client_recv_ret_t {
-    // Null checks
-    if receiver_rx.is_null() {
-        error!("Receiver channel pointer is null");
-        return make_event_recv_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
+) -> salty_client_recv_msg_ret_t {
+
+    // Helper function: Error
+    fn make_error(reason: salty_client_recv_success_t) -> salty_client_recv_msg_ret_t {
+        salty_client_recv_msg_ret_t { success: reason, msg: ptr::null() }
     }
 
-    enum BlockingMode {
-        BLOCKING,
-        NONBLOCKING,
-        TIMEOUT(Duration),
-    }
-
-    // Determine blocking mode
-    let blocking: BlockingMode = if timeout_ms == ptr::null() {
-        BlockingMode::BLOCKING
-    } else if *timeout_ms == 0 {
-        BlockingMode::NONBLOCKING
-    } else {
-        BlockingMode::TIMEOUT(Duration::from_millis(*timeout_ms as u64))
-    };
-
-    // Get channel receiver reference
-    let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<Event>)
-          as &mut mpsc::UnboundedReceiver<Event>;
-
-    // Helper function
-    fn make_message_event_ret(msg: Event) -> salty_client_recv_ret_t {
+    // Helper function: Success
+    fn make_ret(msg: MessageEvent) -> salty_client_recv_msg_ret_t {
 
         // Another helper function :)
-        fn _data_or_application(val: Value, event_type: salty_event_type_t) -> salty_client_recv_ret_t {
+        fn _data_or_application(val: Value, msg_type: salty_msg_type_t) -> salty_client_recv_msg_ret_t {
             // Encode msgpack bytes
             let bytes: Vec<u8> = match rmps::to_vec_named(&val) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     error!("Could not encode value: {}", e);
-                    return make_event_recv_error(salty_client_recv_success_t::RECV_ERROR);
+                    return make_error(salty_client_recv_success_t::RECV_ERROR);
                 }
             };
 
@@ -1062,106 +1302,166 @@ pub unsafe extern "C" fn salty_client_recv_event(
             let bytes_ptr = Box::into_raw(bytes_box);
 
             // Make event struct
-            let event = salty_event_t {
-                event_type,
+            let msg = salty_msg_t {
+                msg_type,
                 msg_bytes: bytes_ptr as *const uint8_t,
                 msg_bytes_len: bytes_len,
                 close_code: 0,
             };
 
             // Get pointer to event on heap
-            let event_ptr = Box::into_raw(Box::new(event));
+            let msg_ptr = Box::into_raw(Box::new(msg));
 
             // TODO: Add function to free allocated memory.
 
-            salty_client_recv_ret_t {
+            salty_client_recv_msg_ret_t {
                 success: salty_client_recv_success_t::RECV_OK,
-                event: event_ptr,
+                msg: msg_ptr,
             }
         }
 
         match msg {
-            Event::Data(val) => _data_or_application(val, salty_event_type_t::EVENT_INCOMING_TASK_MSG),
-            Event::Application(val) => _data_or_application(val, salty_event_type_t::EVENT_INCOMING_APPLICATION_MSG),
-            Event::Close(close_code) => {
-                // Make event struct
-                let event = salty_event_t {
-                    event_type: salty_event_type_t::EVENT_DISCONNECTED,
+            MessageEvent::Data(val) => _data_or_application(val, salty_msg_type_t::MSG_TASK),
+            MessageEvent::Application(val) => _data_or_application(val, salty_msg_type_t::MSG_APPLICATION),
+            MessageEvent::Close(close_code) => {
+                // Make msg struct
+                let msg = salty_msg_t {
+                    msg_type: salty_msg_type_t::MSG_CLOSE,
                     msg_bytes: ptr::null(),
                     msg_bytes_len: 0,
                     close_code: close_code.as_number(),
                 };
 
-                // Get pointer to event on heap
-                let event_ptr = Box::into_raw(Box::new(event));
-
-                // TODO: Add function to free allocated memory.
-
-                salty_client_recv_ret_t {
+                salty_client_recv_msg_ret_t {
                     success: salty_client_recv_success_t::RECV_OK,
-                    event: event_ptr,
+                    msg: Box::into_raw(Box::new(msg)),
                 }
             },
         }
     }
 
-    match blocking {
-        BlockingMode::BLOCKING => {
-            match rx.wait().next() {
-                Some(Ok(msg)) => make_message_event_ret(msg),
-                None => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Some(Err(_)) => {
-                    error!("Could not receive event");
-                    make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
-                },
-            }
-        }
-        BlockingMode::NONBLOCKING => {
-            let mut rx_future = rx.into_future();
-            let nb_future = nonblocking::new(&mut rx_future);
-            let res = nb_future.wait();
-            match res {
-                Ok(Some((Some(msg), _))) => make_message_event_ret(msg),
-                Ok(Some((None, _))) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Ok(None) => make_event_recv_error(salty_client_recv_success_t::RECV_NO_DATA),
-                Err(_) => {
-                    error!("Could not receive event");
-                    make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
-                },
-            }
-        }
-        BlockingMode::TIMEOUT(duration) => {
-            let timeout_future = Timer::default().sleep(duration).map_err(|_| ());
-            let rx_future = rx.into_future();
-            let res = rx_future.select2(timeout_future).wait();
-            match res {
-                Ok(Either::A(((Some(msg), _), _))) => make_message_event_ret(msg),
-                Ok(Either::A(((None, _), _))) => make_event_recv_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Ok(Either::B(_)) => make_event_recv_error(salty_client_recv_success_t::RECV_NO_DATA),
-                Err(_) => {
-                    error!("Could not receive event");
-                    make_event_recv_error(salty_client_recv_success_t::RECV_ERROR)
-                },
-            }
-        }
+    // Null checks
+    if receiver_rx.is_null() {
+        error!("Receiver channel pointer is null");
+        return make_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
+    }
+
+    // Get channel receiver reference
+    let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<MessageEvent>)
+          as &mut mpsc::UnboundedReceiver<MessageEvent>;
+
+    // Receive message depending on blocking mode
+    let blocking_mode = BlockingMode::from_timeout_ms(timeout_ms);
+    blocking_mode.recv(
+        // Content type
+        "message",
+        // Incoming channel
+        rx,
+        // Closure to process a new message
+        |msg| make_ret(msg),
+        // Closure to create an error return value
+        |err| make_error(err),
+    )
+}
+
+/// Free a `salty_client_recv_msg_ret_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_recv_msg_ret_free(recv_ret: salty_client_recv_msg_ret_t) {
+    if recv_ret.msg.is_null() {
+        debug!("salty_client_recv_msg_ret_free: Message is already null");
+        return;
+    }
+    let msg = Box::from_raw(recv_ret.msg as *mut salty_msg_t);
+    if !msg.msg_bytes.is_null() {
+        Vec::from_raw_parts(
+            msg.msg_bytes as *mut u8,
+            msg.msg_bytes_len,
+            msg.msg_bytes_len,
+        );
     }
 }
 
-/// Free an event loop instance.
+/// Receive an event from the incoming channel.
+///
+/// Parameters:
+///     event_rx (`*salty_channel_event_rx_t`, borrowed):
+///         The receiving end of the channel for incoming events.
+///     timeout_ms (`*uint32_t`, borrowed):
+///         - If this is `null`, then the function call will block.
+///         - If this is `0`, then the function will never block. It will either return an event
+///         or `RECV_NO_DATA`.
+///         - If this is a value > 0, then the specified timeout in milliseconds will be used.
+///         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
 #[no_mangle]
-pub unsafe extern "C" fn salty_client_recv_ret_free(recv_ret: salty_client_recv_ret_t) {
+pub unsafe extern "C" fn salty_client_recv_event(
+    event_rx: *const salty_channel_event_rx_t,
+    timeout_ms: *const uint32_t,
+) -> salty_client_recv_event_ret_t {
+
+    // Helper function: Error
+    fn make_error(reason: salty_client_recv_success_t) -> salty_client_recv_event_ret_t {
+        salty_client_recv_event_ret_t { success: reason, event: ptr::null() }
+    }
+
+    // Helper function: Success
+    fn make_ret(event: Event) -> salty_client_recv_event_ret_t {
+        // Create salty_event_t struct
+        let event_t = match event {
+            Event::ServerHandshakeDone(peer_connected) => salty_event_t {
+                event_type: salty_event_type_t::EVENT_SERVER_HANDSHAKE_COMPLETED,
+                peer_connected: peer_connected,
+                peer_id: 0,
+            },
+            Event::PeerHandshakeDone => salty_event_t {
+                event_type: salty_event_type_t::EVENT_PEER_HANDSHAKE_COMPLETED,
+                peer_connected: false,
+                peer_id: 0,
+            },
+            Event::Disconnected(peer_id) => salty_event_t {
+                event_type: salty_event_type_t::EVENT_PEER_DISCONNECTED,
+                peer_connected: false,
+                peer_id: peer_id,
+            },
+        };
+
+        salty_client_recv_event_ret_t {
+            success: salty_client_recv_success_t::RECV_OK,
+            event: Box::into_raw(Box::new(event_t)),
+        }
+    }
+
+    // Null checks
+    if event_rx.is_null() {
+        error!("Event channel pointer is null");
+        return make_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
+    }
+
+    // Get channel receiver reference
+    let rx = &mut *(event_rx as *mut mpsc::UnboundedReceiver<Event>)
+          as &mut mpsc::UnboundedReceiver<Event>;
+
+    // Receive message depending on blocking mode
+    let blocking_mode = BlockingMode::from_timeout_ms(timeout_ms);
+    blocking_mode.recv(
+        // Content type
+        "event",
+        // Incoming channel
+        rx,
+        // Function to process a new message
+        make_ret,
+        // Function to create an error return value
+        make_error,
+    )
+}
+
+/// Free a `salty_client_recv_event_ret_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client_recv_event_ret_t) {
     if recv_ret.event.is_null() {
-        debug!("salty_client_event_free: Event is already null");
+        debug!("salty_client_recv_event_ret_free: Event is already null");
         return;
     }
-    let event = Box::from_raw(recv_ret.event as *mut salty_event_t);
-    if !event.msg_bytes.is_null() {
-        Vec::from_raw_parts(
-            event.msg_bytes as *mut u8,
-            event.msg_bytes_len,
-            event.msg_bytes_len,
-        );
-    }
+    Box::from_raw(recv_ret.event as *mut salty_event_t);
 }
 
 
@@ -1267,33 +1567,33 @@ mod tests {
 
     #[test]
     fn test_recv_rx_channel_null_ptr() {
-        let result = unsafe { salty_client_recv_event(ptr::null(), ptr::null()) };
+        let result = unsafe { salty_client_recv_msg(ptr::null(), ptr::null()) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NULL_ARGUMENT);
     }
 
     #[test]
     fn test_recv_nonblocking() {
-        let (tx, rx) = mpsc::unbounded::<Event>();
+        let (tx, rx) = mpsc::unbounded::<MessageEvent>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         let timeout_ptr = Box::into_raw(Box::new(0u32)) as *const uint32_t;
 
         // Receive no data
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Send two messages
-        tx.unbounded_send(Event::Data(Value::Integer(42.into()))).unwrap();
-        tx.unbounded_send(Event::Application(Value::Integer(23.into()))).unwrap();
-        tx.unbounded_send(Event::Close(CloseCode::from_number(3002).unwrap())).unwrap();
+        tx.unbounded_send(MessageEvent::Data(Value::Integer(42.into()))).unwrap();
+        tx.unbounded_send(MessageEvent::Application(Value::Integer(23.into()))).unwrap();
+        tx.unbounded_send(MessageEvent::Close(CloseCode::from_number(3002).unwrap())).unwrap();
 
         // Receive task data
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_TASK_MSG);
+            let event = &*result.msg;
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_TASK);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
                 event.msg_bytes as *mut u8,
@@ -1305,12 +1605,12 @@ mod tests {
         }
 
         // Receive application data
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_INCOMING_APPLICATION_MSG);
+            let event = &*result.msg;
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_APPLICATION);
             assert_eq!(event.msg_bytes_len, 1);
             let msg_bytes = Vec::from_raw_parts(
                 event.msg_bytes as *mut u8,
@@ -1321,27 +1621,27 @@ mod tests {
             assert_eq!(event.close_code, 0);
         }
 
-        // Receive disconnect
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        // Receive close message
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_DISCONNECTED);
+            let event = &*result.msg;
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_CLOSE);
             assert_eq!(event.close_code, 3002);
             assert!(event.msg_bytes.is_null());
             assert_eq!(event.msg_bytes_len, 0);
         }
 
         // Receive no data
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Drop sender
         ::std::mem::drop(tx);
 
         // Receive stream ended
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_STREAM_ENDED);
 
         // Free some memory
@@ -1353,7 +1653,7 @@ mod tests {
 
     #[test]
     fn test_recv_timeout_thread() {
-        let (tx, rx) = mpsc::unbounded::<Event>();
+        let (tx, rx) = mpsc::unbounded::<MessageEvent>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         let timeout_1s_ptr = Box::into_raw(Box::new(1_000u32)) as *const uint32_t;
@@ -1362,20 +1662,20 @@ mod tests {
         // Set up thread to post a message after 1.5 seconds
         let child = ::std::thread::spawn(move || {
             ::std::thread::sleep(Duration::from_millis(1500));
-            tx.unbounded_send(Event::Close(CloseCode::from_number(3000).unwrap())).unwrap();
+            tx.unbounded_send(MessageEvent::Close(CloseCode::from_number(3000).unwrap())).unwrap();
         });
 
         // Wait for max 1s, but receive no data (timeout)
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_1s_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_1s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Wait again for max 1s, now data from the thread should arrive!
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_1s_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_1s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_OK);
-        assert_eq!(result.event.is_null(), false);
+        assert_eq!(result.msg.is_null(), false);
         unsafe {
-            let event = &*result.event;
-            assert_eq!(event.event_type, salty_event_type_t::EVENT_DISCONNECTED);
+            let event = &*result.msg;
+            assert_eq!(event.msg_type, salty_msg_type_t::MSG_CLOSE);
             assert_eq!(event.close_code, 3000);
             assert!(event.msg_bytes.is_null());
             assert_eq!(event.msg_bytes_len, 0);
@@ -1385,7 +1685,7 @@ mod tests {
         child.join().unwrap();
 
         // Immediately receive stream ended
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_600s_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_600s_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_STREAM_ENDED);
 
         // Free some memory
@@ -1398,12 +1698,12 @@ mod tests {
 
     #[test]
     fn test_recv_timeout_simple() {
-        let (_tx, rx) = mpsc::unbounded::<Event>();
+        let (_tx, rx) = mpsc::unbounded::<MessageEvent>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         // Wait for max 500ms, but receive no data (timeout)
         let timeout_500ms_ptr = Box::into_raw(Box::new(500u32)) as *const uint32_t;
-        let result = unsafe { salty_client_recv_event(rx_ptr, timeout_500ms_ptr) };
+        let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_500ms_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
         // Free some memory

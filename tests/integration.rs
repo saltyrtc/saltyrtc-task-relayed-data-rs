@@ -30,7 +30,7 @@ use saltyrtc_client::dep::futures::sync::mpsc;
 use saltyrtc_client::dep::native_tls::{Certificate, TlsConnector, Protocol};
 use saltyrtc_client::dep::rmpv::Value;
 use saltyrtc_client::tasks::Task;
-use saltyrtc_task_relayed_data::{RelayedDataTask, Event, OutgoingMessage, RelayedDataError};
+use saltyrtc_task_relayed_data::{RelayedDataTask, MessageEvent, OutgoingMessage, RelayedDataError};
 use tokio_core::reactor::{Core, Remote};
 use tokio_timer::Timer;
 
@@ -46,7 +46,7 @@ macro_rules! boxed {
 fn setup_initiator(
     keypair: KeyPair,
     remote: Remote,
-) -> (SaltyClient, mpsc::UnboundedReceiver<Event>) {
+) -> (SaltyClient, mpsc::UnboundedReceiver<MessageEvent>) {
     let (tx, rx) = mpsc::unbounded();
     let task = RelayedDataTask::new(remote, tx);
     let salty = SaltyClient::build(keypair)
@@ -61,7 +61,7 @@ fn setup_responder(
     remote: Remote,
     pubkey: PublicKey,
     auth_token: AuthToken,
-) -> (SaltyClient, mpsc::UnboundedReceiver<Event>) {
+) -> (SaltyClient, mpsc::UnboundedReceiver<MessageEvent>) {
     let (tx, rx) = mpsc::unbounded();
     let task = RelayedDataTask::new(remote, tx);
     let salty = SaltyClient::build(keypair)
@@ -194,8 +194,8 @@ fn integration_test() {
 
     let rx_loop_responder = rx_responder
         .map_err(|_| Err(RelayedDataError::Channel(("Could not read from rx_responder").into())))
-        .for_each(move |ev: Event| match ev {
-            Event::Data(data) => {
+        .for_each(move |ev: MessageEvent| match ev {
+            MessageEvent::Data(data) => {
                 // Verify incoming data
                 assert_eq!(data.as_i64(), Some(1));
                 debug!("R: Received 1");
@@ -210,7 +210,7 @@ fn integration_test() {
                     .map_err(|e| Err(RelayedDataError::Channel(format!("Could not send message to tx_responder: {}", e))));
                 boxed!(future)
             },
-            Event::Application(data) => {
+            MessageEvent::Application(data) => {
                 // Verify incoming data
                 assert_eq!(data.as_i64(), Some(4));
                 debug!("R: Received 4 (application)");
@@ -223,7 +223,7 @@ fn integration_test() {
                     .map_err(|e| Err(RelayedDataError::Channel(format!("Could not send message to tx_responder: {}", e))));
                 boxed!(future)
             },
-            Event::Close(reason) => {
+            MessageEvent::Close(reason) => {
                 assert_eq!(reason, CloseCode::WsGoingAway);
                 boxed!(future::err(Ok(())))
             },
@@ -234,8 +234,8 @@ fn integration_test() {
     let tx_initiator_clone = tx_initiator.clone();
     let rx_loop_initiator = rx_initiator
         .map_err(|_| RelayedDataError::Channel(("Could not read from rx_initiator").into()))
-        .for_each(move |ev: Event| match ev {
-            Event::Data(data) => {
+        .for_each(move |ev: MessageEvent| match ev {
+            MessageEvent::Data(data) => {
                 // Verify incoming data
                 match data.as_i64() {
                     Some(2) => {
@@ -256,7 +256,7 @@ fn integration_test() {
                     _ => panic!("I: Received invalid value: {}", data),
                 }
             },
-            Event::Application(data) => match data.as_i64() {
+            MessageEvent::Application(data) => match data.as_i64() {
                 Some(5) => {
                     debug!("I: Received 5 (application)");
                     debug!("Done, disconnecting");
@@ -265,7 +265,7 @@ fn integration_test() {
                 },
                 _ => panic!("I: Received invalid application value: {}", data),
             },
-            Event::Close(_) => panic!("Initiator should disconnect first!"),
+            MessageEvent::Close(_) => panic!("Initiator should disconnect first!"),
         })
         .then(|f| { debug!("† rx_loop_initiator done"); f });
 
