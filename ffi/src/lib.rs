@@ -1152,6 +1152,25 @@ pub unsafe extern "C" fn salty_client_send_application_bytes(
     salty_client_send_bytes(OutgoingMessageType::Application, sender_tx, msg, msg_len)
 }
 
+enum BlockingMode {
+    BLOCKING,
+    NONBLOCKING,
+    TIMEOUT(Duration),
+}
+
+impl BlockingMode {
+    unsafe fn from_timeout_ms(timeout_ms: *const uint32_t) -> Self {
+        if timeout_ms == ptr::null() {
+            BlockingMode::BLOCKING
+        } else if *timeout_ms == 0 {
+            BlockingMode::NONBLOCKING
+        } else {
+            BlockingMode::TIMEOUT(Duration::from_millis(*timeout_ms as u64))
+        }
+    }
+}
+
+
 /// Receive a message from the incoming channel.
 ///
 /// Parameters:
@@ -1244,20 +1263,8 @@ pub unsafe extern "C" fn salty_client_recv_msg(
         return make_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
     }
 
-    enum BlockingMode {
-        BLOCKING,
-        NONBLOCKING,
-        TIMEOUT(Duration),
-    }
-
-    // Determine blocking mode
-    let blocking: BlockingMode = if timeout_ms == ptr::null() {
-        BlockingMode::BLOCKING
-    } else if *timeout_ms == 0 {
-        BlockingMode::NONBLOCKING
-    } else {
-        BlockingMode::TIMEOUT(Duration::from_millis(*timeout_ms as u64))
-    };
+    // Get blocking mode
+    let blocking = BlockingMode::from_timeout_ms(timeout_ms);
 
     // Get channel receiver reference
     let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<MessageEvent>)
