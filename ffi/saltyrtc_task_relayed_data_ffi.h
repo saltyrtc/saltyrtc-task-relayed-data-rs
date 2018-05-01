@@ -545,6 +545,11 @@ salty_client_recv_event_ret_t salty_client_recv_event(const salty_channel_event_
                                                       const uint32_t *timeout_ms);
 
 /*
+ * Free a `salty_client_recv_event_ret_t` instance.
+ */
+void salty_client_recv_event_ret_free(salty_client_recv_event_ret_t recv_ret);
+
+/*
  * Receive a message from the incoming channel.
  *
  * Parameters:

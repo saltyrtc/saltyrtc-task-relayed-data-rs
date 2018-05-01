@@ -13,6 +13,7 @@
 
 
 // Function prototypes
+void drain_events(const salty_channel_event_rx_t *event_rx, char *role);
 void *connect_initiator(void *threadarg);
 void *connect_responder(void *threadarg);
 
@@ -27,6 +28,64 @@ static const salty_channel_receiver_rx_t *initiator_receiver = NULL;
 static const salty_channel_receiver_rx_t *responder_receiver = NULL;
 static const salty_channel_disconnect_tx_t *initiator_disconnect = NULL;
 static const salty_channel_disconnect_tx_t *responder_disconnect = NULL;
+
+
+/**
+ * Drain events from the receiving end of the event channel.
+ */
+void drain_events(const salty_channel_event_rx_t *event_rx, char *role) {
+    uint32_t timeout_ms = 10;
+    bool stop = false;
+    while (!stop) {
+        salty_client_recv_event_ret_t event_ret = salty_client_recv_event(event_rx, &timeout_ms);
+        printf("    %s EVENT:", role);
+        switch (event_ret.success) {
+            case RECV_OK:
+                break;
+            case RECV_NULL_ARGUMENT:
+                printf(" error (null argument)");
+                stop = true; break;
+            case RECV_NO_DATA:
+                printf(" error (no data)");
+                stop = true; break;
+            case RECV_STREAM_ENDED:
+                printf(" event stream ended");
+                stop = true; break;
+            case RECV_ERROR:
+                printf(" unknown error");
+                stop = true; break;
+            default:
+                printf(" unexpected error");
+                stop = true; break;
+        }
+        if (event_ret.success == RECV_OK) {
+            switch (event_ret.event->event_type) {
+                case EVENT_CONNECTING:
+                    printf(" connecting\n");
+                    break;
+                case EVENT_SERVER_HANDSHAKE_COMPLETED:
+                    printf(" server handshake completed (");
+                    if (event_ret.event->peer_connected) {
+                        printf("peer connected");
+                    } else {
+                        printf("peer not connected");
+                    }
+                    printf(")\n");
+                    break;
+                case EVENT_PEER_HANDSHAKE_COMPLETED:
+                    printf(" peer handshake completed\n");
+                    break;
+                case EVENT_PEER_DISCONNECTED:
+                    printf(" peer %d disconnected\n", event_ret.event->peer_id);
+                    break;
+            }
+        } else {
+            printf("\n");
+        }
+        salty_client_recv_event_ret_free(event_ret);
+    }
+}
+
 
 /**
  * Struct used to pass data from the main thread to the client threads.
@@ -119,6 +178,8 @@ void *connect_initiator(void *threadarg) {
         // Disconnect channel, receiving end
         client_ret.disconnect_rx
     );
+
+    drain_events(init_ret.event_rx, "INITIATOR");
 
     printf("    INITIATOR: Connection ended with exit code %d\n", connect_success);
     salty_client_connect_success_t* connect_success_copy = malloc(sizeof(connect_success));
@@ -216,6 +277,8 @@ void *connect_responder(void *threadarg) {
         // Disconnect channel, receiving end
         client_ret.disconnect_rx
     );
+
+    drain_events(init_ret.event_rx, "RESPONDER");
 
     printf("    RESPONDER: Connection ended with exit code %d\n", connect_success);
     salty_client_connect_success_t* connect_success_copy = malloc(sizeof(connect_success));

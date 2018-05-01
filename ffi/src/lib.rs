@@ -1332,14 +1332,9 @@ pub unsafe extern "C" fn salty_client_recv_msg(
                     close_code: close_code.as_number(),
                 };
 
-                // Get pointer to event on heap
-                let msg_ptr = Box::into_raw(Box::new(msg));
-
-                // TODO: Add function to free allocated memory.
-
                 salty_client_recv_msg_ret_t {
                     success: salty_client_recv_success_t::RECV_OK,
-                    msg: msg_ptr,
+                    msg: Box::into_raw(Box::new(msg)),
                 }
             },
         }
@@ -1429,14 +1424,9 @@ pub unsafe extern "C" fn salty_client_recv_event(
             },
         };
 
-        // Get pointer to event struct on heap
-        let event_ptr = Box::into_raw(Box::new(event_t));
-
-        // TODO: Add function to free allocated memory.
-
         salty_client_recv_event_ret_t {
             success: salty_client_recv_success_t::RECV_OK,
-            event: event_ptr,
+            event: Box::into_raw(Box::new(event_t)),
         }
     }
 
@@ -1462,6 +1452,16 @@ pub unsafe extern "C" fn salty_client_recv_event(
         // Function to create an error return value
         make_error,
     )
+}
+
+/// Free a `salty_client_recv_event_ret_t` instance.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client_recv_event_ret_t) {
+    if recv_ret.event.is_null() {
+        debug!("salty_client_recv_event_ret_free: Event is already null");
+        return;
+    }
+    Box::from_raw(recv_ret.event as *mut salty_event_t);
 }
 
 
