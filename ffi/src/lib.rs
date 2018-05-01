@@ -1168,6 +1168,67 @@ impl BlockingMode {
             BlockingMode::TIMEOUT(Duration::from_millis(*timeout_ms as u64))
         }
     }
+
+    /// Receive somedata through a channel receiver.
+    ///
+    /// Type arguments:
+    ///
+    /// - D: The type coming in through the channel receiver.
+    /// - T: The return type of this function.
+    /// - P: The function processing incoming data.
+    /// - E: The function creating error results.
+    fn recv<D, T, P, E>(
+        &self,
+        content_type: &str,
+        rx: &mut mpsc::UnboundedReceiver<D>,
+        process_data: P,
+        make_error: E,
+    ) -> T
+    where
+        P: FnOnce(D) -> T,
+        E: FnOnce(salty_client_recv_success_t) -> T,
+    {
+        match *self {
+            BlockingMode::BLOCKING => {
+                match rx.wait().next() {
+                    Some(Ok(data)) => process_data(data),
+                    None => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                    Some(Err(_)) => {
+                        error!("Could not receive {}", content_type);
+                        make_error(salty_client_recv_success_t::RECV_ERROR)
+                    },
+                }
+            }
+            BlockingMode::NONBLOCKING => {
+                let mut rx_future = rx.into_future();
+                let nb_future = nonblocking::new(&mut rx_future);
+                let res = nb_future.wait();
+                match res {
+                    Ok(Some((Some(data), _))) => process_data(data),
+                    Ok(Some((None, _))) => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                    Ok(None) => make_error(salty_client_recv_success_t::RECV_NO_DATA),
+                    Err(_) => {
+                        error!("Could not receive {}", content_type);
+                        make_error(salty_client_recv_success_t::RECV_ERROR)
+                    },
+                }
+            }
+            BlockingMode::TIMEOUT(duration) => {
+                let timeout_future = Timer::default().sleep(duration).map_err(|_| ());
+                let rx_future = rx.into_future();
+                let res = rx_future.select2(timeout_future).wait();
+                match res {
+                    Ok(Either::A(((Some(data), _), _))) => process_data(data),
+                    Ok(Either::A(((None, _), _))) => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
+                    Ok(Either::B(_)) => make_error(salty_client_recv_success_t::RECV_NO_DATA),
+                    Err(_) => {
+                        error!("Could not receive {}", content_type);
+                        make_error(salty_client_recv_success_t::RECV_ERROR)
+                    },
+                }
+            }
+        }
+    }
 }
 
 
@@ -1256,60 +1317,28 @@ pub unsafe extern "C" fn salty_client_recv_msg(
         }
     }
 
-
     // Null checks
     if receiver_rx.is_null() {
         error!("Receiver channel pointer is null");
         return make_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
     }
 
-    // Get blocking mode
-    let blocking = BlockingMode::from_timeout_ms(timeout_ms);
-
     // Get channel receiver reference
     let rx = &mut *(receiver_rx as *mut mpsc::UnboundedReceiver<MessageEvent>)
           as &mut mpsc::UnboundedReceiver<MessageEvent>;
 
-    match blocking {
-        BlockingMode::BLOCKING => {
-            match rx.wait().next() {
-                Some(Ok(msg)) => make_ret(msg),
-                None => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Some(Err(_)) => {
-                    error!("Could not receive message");
-                    make_error(salty_client_recv_success_t::RECV_ERROR)
-                },
-            }
-        }
-        BlockingMode::NONBLOCKING => {
-            let mut rx_future = rx.into_future();
-            let nb_future = nonblocking::new(&mut rx_future);
-            let res = nb_future.wait();
-            match res {
-                Ok(Some((Some(msg), _))) => make_ret(msg),
-                Ok(Some((None, _))) => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Ok(None) => make_error(salty_client_recv_success_t::RECV_NO_DATA),
-                Err(_) => {
-                    error!("Could not receive message");
-                    make_error(salty_client_recv_success_t::RECV_ERROR)
-                },
-            }
-        }
-        BlockingMode::TIMEOUT(duration) => {
-            let timeout_future = Timer::default().sleep(duration).map_err(|_| ());
-            let rx_future = rx.into_future();
-            let res = rx_future.select2(timeout_future).wait();
-            match res {
-                Ok(Either::A(((Some(msg), _), _))) => make_ret(msg),
-                Ok(Either::A(((None, _), _))) => make_error(salty_client_recv_success_t::RECV_STREAM_ENDED),
-                Ok(Either::B(_)) => make_error(salty_client_recv_success_t::RECV_NO_DATA),
-                Err(_) => {
-                    error!("Could not receive message");
-                    make_error(salty_client_recv_success_t::RECV_ERROR)
-                },
-            }
-        }
-    }
+    // Receive message depending on blocking mode
+    let blocking_mode = BlockingMode::from_timeout_ms(timeout_ms);
+    blocking_mode.recv(
+        // Content type
+        "message",
+        // Incoming channel
+        rx,
+        // Closure to process a new message
+        |msg| make_ret(msg),
+        // Closure to create an error return value
+        |err| make_error(err),
+    )
 }
 
 /// Free a `salty_client_recv_msg_ret_t` instance.
