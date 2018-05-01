@@ -266,24 +266,6 @@ pub enum salty_client_send_success_t {
     SEND_ERROR = 9,
 }
 
-/// Possible event types.
-#[repr(u8)]
-#[no_mangle]
-#[derive(Debug, PartialEq, Eq)]
-pub enum salty_event_type_t {
-    /// A connection is being established.
-    EVENT_CONNECTING = 0x01,
-
-    /// Server handshake completed.
-    EVENT_SERVER_HANDSHAKE_COMPLETED = 0x02,
-
-    /// Peer handshake completed.
-    EVENT_PEER_HANDSHAKE_COMPLETED = 0x03,
-
-    /// A peer has disconnected from the server.
-    EVENT_PEER_DISCONNECTED = 0x04,
-}
-
 /// Possible message types.
 #[repr(u8)]
 #[no_mangle]
@@ -313,6 +295,41 @@ pub struct salty_msg_t {
     msg_bytes: *const uint8_t,
     msg_bytes_len: uintptr_t,
     close_code: uint16_t,
+}
+
+/// Possible event types.
+#[repr(u8)]
+#[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
+pub enum salty_event_type_t {
+    /// A connection is being established.
+    EVENT_CONNECTING = 0x01,
+
+    /// Server handshake completed.
+    EVENT_SERVER_HANDSHAKE_COMPLETED = 0x02,
+
+    /// Peer handshake completed.
+    EVENT_PEER_HANDSHAKE_COMPLETED = 0x03,
+
+    /// A peer has disconnected from the server.
+    EVENT_PEER_DISCONNECTED = 0x04,
+}
+
+/// An event.
+///
+/// If the event type is `EVENT_SERVER_HANDSHAKE_COMPLETED`, then the
+/// `peer_connected` field will contain a boolean indicating whether or not a
+/// peer is already connected to the server or not. Otherwise, the field is
+/// always `false` and should be ignored.
+///
+/// If the event type is `EVENT_PEER_DISCONNECTED`, then the `peer_id` field
+/// will contain the peer id. Otherwise, the field is `0`.
+#[repr(C)]
+#[no_mangle]
+pub struct salty_event_t {
+    event_type: salty_event_type_t,
+    peer_connected: bool,
+    peer_id: uint8_t,
 }
 
 /// Result type with all potential event receiving error codes.
@@ -347,6 +364,17 @@ pub enum salty_client_recv_success_t {
 pub struct salty_client_recv_msg_ret_t {
     pub success: salty_client_recv_success_t,
     pub msg: *const salty_msg_t,
+}
+
+/// The return value when trying to receive an event.
+///
+/// Note: Before accessing `event`, make sure to check the `success` field
+/// for errors. If an error occurred, the `event` field will be `null`.
+#[repr(C)]
+#[no_mangle]
+pub struct salty_client_recv_event_ret_t {
+    pub success: salty_client_recv_success_t,
+    pub event: *const salty_event_t,
 }
 
 
@@ -1356,6 +1384,84 @@ pub unsafe extern "C" fn salty_client_recv_msg_ret_free(recv_ret: salty_client_r
             msg.msg_bytes_len,
         );
     }
+}
+
+/// Receive an event from the incoming channel.
+///
+/// Parameters:
+///     event_rx (`*salty_channel_event_rx_t`, borrowed):
+///         The receiving end of the channel for incoming events.
+///     timeout_ms (`*uint32_t`, borrowed):
+///         - If this is `null`, then the function call will block.
+///         - If this is `0`, then the function will never block. It will either return an event
+///         or `RECV_NO_DATA`.
+///         - If this is a value > 0, then the specified timeout in milliseconds will be used.
+///         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_recv_event(
+    event_rx: *const salty_channel_event_rx_t,
+    timeout_ms: *const uint32_t,
+) -> salty_client_recv_event_ret_t {
+
+    // Helper function: Error
+    fn make_error(reason: salty_client_recv_success_t) -> salty_client_recv_event_ret_t {
+        salty_client_recv_event_ret_t { success: reason, event: ptr::null() }
+    }
+
+    // Helper function: Success
+    fn make_ret(event: Event) -> salty_client_recv_event_ret_t {
+        // Create salty_event_t struct
+        let event_t = match event {
+            Event::ServerHandshakeDone(peer_connected) => salty_event_t {
+                event_type: salty_event_type_t::EVENT_SERVER_HANDSHAKE_COMPLETED,
+                peer_connected: peer_connected,
+                peer_id: 0,
+            },
+            Event::PeerHandshakeDone => salty_event_t {
+                event_type: salty_event_type_t::EVENT_PEER_HANDSHAKE_COMPLETED,
+                peer_connected: false,
+                peer_id: 0,
+            },
+            Event::Disconnected(peer_id) => salty_event_t {
+                event_type: salty_event_type_t::EVENT_PEER_DISCONNECTED,
+                peer_connected: false,
+                peer_id: peer_id,
+            },
+        };
+
+        // Get pointer to event struct on heap
+        let event_ptr = Box::into_raw(Box::new(event_t));
+
+        // TODO: Add function to free allocated memory.
+
+        salty_client_recv_event_ret_t {
+            success: salty_client_recv_success_t::RECV_OK,
+            event: event_ptr,
+        }
+    }
+
+    // Null checks
+    if event_rx.is_null() {
+        error!("Event channel pointer is null");
+        return make_error(salty_client_recv_success_t::RECV_NULL_ARGUMENT);
+    }
+
+    // Get channel receiver reference
+    let rx = &mut *(event_rx as *mut mpsc::UnboundedReceiver<Event>)
+          as &mut mpsc::UnboundedReceiver<Event>;
+
+    // Receive message depending on blocking mode
+    let blocking_mode = BlockingMode::from_timeout_ms(timeout_ms);
+    blocking_mode.recv(
+        // Content type
+        "event",
+        // Incoming channel
+        rx,
+        // Function to process a new message
+        make_ret,
+        // Function to create an error return value
+        make_error,
+    )
 }
 
 

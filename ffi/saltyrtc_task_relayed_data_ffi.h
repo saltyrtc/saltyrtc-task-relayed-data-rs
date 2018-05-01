@@ -168,6 +168,29 @@ enum salty_client_send_success_t {
 typedef uint8_t salty_client_send_success_t;
 
 /*
+ * Possible event types.
+ */
+enum salty_event_type_t {
+  /*
+   * A connection is being established.
+   */
+  EVENT_CONNECTING = 1,
+  /*
+   * Server handshake completed.
+   */
+  EVENT_SERVER_HANDSHAKE_COMPLETED = 2,
+  /*
+   * Peer handshake completed.
+   */
+  EVENT_PEER_HANDSHAKE_COMPLETED = 3,
+  /*
+   * A peer has disconnected from the server.
+   */
+  EVENT_PEER_DISCONNECTED = 4,
+};
+typedef uint8_t salty_event_type_t;
+
+/*
  * Possible message types.
  */
 enum salty_msg_type_t {
@@ -316,6 +339,34 @@ typedef struct {
   const salty_channel_event_rx_t *event_rx;
   const salty_channel_event_tx_t *event_tx;
 } salty_client_init_ret_t;
+
+/*
+ * An event.
+ *
+ * If the event type is `EVENT_SERVER_HANDSHAKE_COMPLETED`, then the
+ * `peer_connected` field will contain a boolean indicating whether or not a
+ * peer is already connected to the server or not. Otherwise, the field is
+ * always `false` and should be ignored.
+ *
+ * If the event type is `EVENT_PEER_DISCONNECTED`, then the `peer_id` field
+ * will contain the peer id. Otherwise, the field is `0`.
+ */
+typedef struct {
+  salty_event_type_t event_type;
+  bool peer_connected;
+  uint8_t peer_id;
+} salty_event_t;
+
+/*
+ * The return value when trying to receive an event.
+ *
+ * Note: Before accessing `event`, make sure to check the `success` field
+ * for errors. If an error occurred, the `event` field will be `null`.
+ */
+typedef struct {
+  salty_client_recv_success_t success;
+  const salty_event_t *event;
+} salty_client_recv_event_ret_t;
 
 /*
  * A message event.
@@ -476,6 +527,22 @@ salty_client_init_ret_t salty_client_init(const char *host,
                                           uint16_t timeout_s,
                                           const uint8_t *ca_cert,
                                           uint32_t ca_cert_len);
+
+/*
+ * Receive an event from the incoming channel.
+ *
+ * Parameters:
+ *     event_rx (`*salty_channel_event_rx_t`, borrowed):
+ *         The receiving end of the channel for incoming events.
+ *     timeout_ms (`*uint32_t`, borrowed):
+ *         - If this is `null`, then the function call will block.
+ *         - If this is `0`, then the function will never block. It will either return an event
+ *         or `RECV_NO_DATA`.
+ *         - If this is a value > 0, then the specified timeout in milliseconds will be used.
+ *         Either an event or `RECV_NO_DATA` (in the case of a timeout) will be returned.
+ */
+salty_client_recv_event_ret_t salty_client_recv_event(const salty_channel_event_rx_t *event_rx,
+                                                      const uint32_t *timeout_ms);
 
 /*
  * Receive a message from the incoming channel.
