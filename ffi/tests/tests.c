@@ -118,6 +118,7 @@ void *connect_initiator(void *threadarg) {
         data->keypair,
         remote,
         data->interval_seconds,
+        NULL,
         NULL
     );
     if (client_ret.success != OK) {
@@ -229,7 +230,8 @@ void *connect_responder(void *threadarg) {
         remote,
         data->interval_seconds,
         data->initiator_pubkey,
-        auth_token
+        auth_token,
+        NULL
     );
     if (client_ret.success != OK) {
         printf("      RESPONDER ERROR: Could not create client: %d", client_ret.success);

@@ -239,6 +239,10 @@ enum salty_relayed_data_success_t {
    * The trusted key bytes are not valid.
    */
   TRUSTED_KEY_INVALID = 5,
+  /*
+   * The server permanent public key bytes are not valid.
+   */
+  SERVER_KEY_INVALID = 6,
 };
 typedef uint8_t salty_relayed_data_success_t;
 
@@ -745,13 +749,17 @@ void salty_relayed_data_client_free(const salty_client_t *ptr);
  *     trusted_responder_key (`*uint8_t` or `null`, borrowed):
  *         The trusted responder public key. If set, this must be a pointer to a 32 byte
  *         `uint8_t` array. Set this to null when not restoring a trusted session.
+ *     server_public_permanent_key (`*uint8_t` or `null`, borrowed):
+ *         The server public permanent key. If set, this must be a pointer to a 32 byte
+ *         `uint8_t` array. Set this to null to not validate the server public key.
  * Returns:
  *     A `salty_relayed_data_client_ret_t` struct.
  */
 salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(const salty_keypair_t *keypair,
                                                                  const salty_remote_t *remote,
                                                                  uint32_t ping_interval_seconds,
-                                                                 const uint8_t *trusted_responder_key);
+                                                                 const uint8_t *trusted_responder_key,
+                                                                 const uint8_t *server_public_permanent_key);
 
 /*
  * Initialize a new SaltyRTC client as responder with the Relayed Data task.
@@ -769,6 +777,9 @@ salty_relayed_data_client_ret_t salty_relayed_data_initiator_new(const salty_key
  *     auth_token (`*uint8_t` or `null`, borrowed):
  *         One-time auth token from the initiator. If set, this must be a pointer
  *         to a 32 byte `uint8_t` array. Set this to `null` when restoring a trusted session.
+ *     server_public_permanent_key (`*uint8_t` or `null`, borrowed):
+ *         The server public permanent key. If set, this must be a pointer to a 32 byte
+ *         `uint8_t` array. Set this to null to not validate the server public key.
  * Returns:
  *     A `salty_relayed_data_client_ret_t` struct.
  */
@@ -776,6 +787,7 @@ salty_relayed_data_client_ret_t salty_relayed_data_responder_new(const salty_key
                                                                  const salty_remote_t *remote,
                                                                  uint32_t ping_interval_seconds,
                                                                  const uint8_t *initiator_pubkey,
-                                                                 const uint8_t *auth_token);
+                                                                 const uint8_t *auth_token,
+                                                                 const uint8_t *server_public_permanent_key);
 
 #endif /* saltyrtc_task_relayed_data_bindings_h */
