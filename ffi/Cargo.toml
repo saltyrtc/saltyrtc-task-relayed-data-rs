@@ -13,7 +13,7 @@ libc = "0.2"
 log = "0.4"
 log4rs = "0.8"
 rmp-serde = "0.13"
-saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs.git", branch = "develop" }
+saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs.git", branch = "master" }
 saltyrtc-task-relayed-data = { path = ".." }
 tokio-core = "0.1"
 tokio-timer = "0.1"
