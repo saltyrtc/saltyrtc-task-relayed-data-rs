@@ -7,7 +7,7 @@ authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
 clippy = { version = "*", optional = true }
 failure = "0.1"
 log = "0.3"
-saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs.git", branch = "master" }
+saltyrtc-client = "0.5.0-beta.2"
 tokio-core = "0.1"
 
 [dev-dependencies]
