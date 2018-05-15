@@ -1,9 +1,8 @@
 # SaltyRTC Relayed Data Task
 
 [![CircleCI][circle-ci-badge]][circle-ci]
+[![Rust][rust-badge]][github]
 [![Join our chat on Gitter](https://badges.gitter.im/saltyrtc/Lobby.svg)](https://gitter.im/saltyrtc/Lobby)
-
-**Note:** This library is in early development stage and does not yet work properly.
 
 
 ## Testing
@@ -31,6 +30,7 @@ If `nightly` is not your default compiler:
 
     $ rustup run nightly cargo build --features clippy
 
+
 ## Msgpack Debugging
 
 If you enable the `msgpack-debugging` compile flag, you'll get direct msgpack
@@ -42,6 +42,13 @@ You can customize that URL prefix at compile time using the `MSGPACK_DEBUG_URL`
 env var. This is the default URL:
 
     MSGPACK_DEBUG_URL='https://msgpack.dbrgn.ch/#base64='
+
+
+## Release Signatures
+
+Release commits and tags are signed with the
+[Threema signing key](https://keybase.io/threema)
+(`E7ADD9914E260E8B35DFB50665FDE935573ACDA6`).
 
 
 ## License
@@ -63,3 +70,5 @@ be dual licensed as above, without any additional terms or conditions.
 <!-- Badges -->
 [circle-ci]: https://circleci.com/gh/saltyrtc/saltyrtc-task-relayed-data-rs/tree/master
 [circle-ci-badge]: https://circleci.com/gh/saltyrtc/saltyrtc-task-relayed-data-rs/tree/master.svg?style=shield
+[github]: https://github.com/saltyrtc/saltyrtc-task-relayed-data-rs
+[rust-badge]: https://img.shields.io/badge/rust-1.26%2B-blue.svg?maxAge=3600
