@@ -60,8 +60,7 @@ fn build_tests() -> (MutexGuard<'static, ()>, PathBuf) {
     (guard, build_dir)
 }
 
-#[test]
-fn c_tests_run() {
+fn c_tests_run(bin: &str) {
     let (_guard, build_dir) = build_tests();
 
     // Event loop
@@ -71,7 +70,7 @@ fn c_tests_run() {
     let timer = Timer::default();
 
     // Create a command future
-    let c_tests = Command::new("./tests")
+    let c_tests = Command::new(bin)
         .current_dir(&build_dir)
         .output_async(&core.handle());
 
@@ -92,6 +91,16 @@ fn c_tests_run() {
     }
 }
 
+#[test]
+fn c_tests_integration_run() {
+    c_tests_run("./integration");
+}
+
+#[test]
+fn c_tests_disconnect_run() {
+    c_tests_run("./disconnect");
+}
+
 // #[test] Disabled for now due to false errors, see
 // https://bugs.kde.org/show_bug.cgi?id=381289 and
 // https://bugzilla.redhat.com/show_bug.cgi?id=1462258
@@ -102,7 +111,7 @@ fn c_tests_no_memory_leaks() {
         .arg("--error-exitcode=23")
         .arg("--leak-check=full")
         .arg("--track-fds=yes")
-        .arg("./tests")
+        .arg("./integration")
         .current_dir(&build_dir)
         .output()
         .expect("Could not run valgrind");
