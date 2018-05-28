@@ -353,7 +353,7 @@ int main() {
     if (fclose(fd) != 0) printf("Warning: Closing ca cert file descriptor failed");
 
     printf("  Initializing logger (level DEBUG)\n");
-    if (!salty_log_init(LEVEL_INFO)) {
+    if (!salty_log_init(LEVEL_DEBUG)) {
         return EXIT_FAILURE;
     }
     printf("  Updating logger (level WARN)\n");

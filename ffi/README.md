@@ -12,7 +12,7 @@ To build for iOS, install `cargo-lipo`, then run
 
 ## C Example
 
-To see a C usage example, please take a look at `tests/tests.c`.
+To see a C usage example, please take a look at `tests/integration.c`.
 
 
 ## Testing

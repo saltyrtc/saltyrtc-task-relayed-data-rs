@@ -1025,13 +1025,26 @@ pub unsafe extern "C" fn salty_client_connect(
     let disconnect_rx_box = Box::from_raw(disconnect_rx as *mut oneshot::Receiver<CloseCode>);
 
     // Run handshake future to completion
-    let ws_client = match core.run(*handshake_future_box) {
-        Ok(ws_client) => {
+    let (ws_client, disconnect_rx_box) = match core.run((*handshake_future_box).select2(disconnect_rx_box)) {
+        // Handshake done
+        Ok(Either::A((ws_client, disconnect_rx_box))) => {
             info!("Handshake done");
-            ws_client
+            (ws_client, disconnect_rx_box)
         },
-        Err(e) => {
+
+        // Disconnect requested
+        Ok(Either::B(_)) => {
+            info!("Handshake ended (disconnected by us)");
+            return salty_client_connect_success_t::CONNECT_OK;
+        },
+
+        // Errors
+        Err(Either::A((e, _))) => {
             error!("Connection error: {}", e);
+            return salty_client_connect_success_t::CONNECT_ERROR;
+        },
+        Err(Either::B((e, _))) => {
+            error!("Error while listening for disconnect: {}", e);
             return salty_client_connect_success_t::CONNECT_ERROR;
         },
     };
@@ -1092,7 +1105,7 @@ pub unsafe extern "C" fn salty_client_connect(
     match core.run(connection) {
         // Disconnect requested
         Ok(Either3::A(_)) => {
-            // TODO
+            info!("Connection ended (disconnected by us)");
             salty_client_connect_success_t::CONNECT_OK
         },
 
@@ -1515,6 +1528,8 @@ pub unsafe extern "C" fn salty_client_disconnect(
     disconnect_tx: *const salty_channel_disconnect_tx_t,
     close_code: uint16_t, // TODO: Enum
 ) -> salty_client_disconnect_success_t {
+    info!("Disconnecting with close code {}...", close_code);
+
     // Null pointer checks
     if disconnect_tx.is_null() {
         error!("Disconnect pointer is null");

@@ -30,7 +30,12 @@ thread_dep = dependency('threads')
 
 # Executables
 executable(
-  'tests',
-  'tests/tests.c',
+  'integration',
+  'tests/integration.c',
+  dependencies : [saltyrtc_task_relayed_data_ffi, thread_dep]
+)
+executable(
+  'disconnect',
+  'tests/disconnect.c',
   dependencies : [saltyrtc_task_relayed_data_ffi, thread_dep]
 )
