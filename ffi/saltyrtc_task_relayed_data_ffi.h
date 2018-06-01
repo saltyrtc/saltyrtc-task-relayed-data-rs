@@ -70,10 +70,6 @@ enum salty_client_disconnect_success_t {
    */
   DISCONNECT_NULL_ARGUMENT = 1,
   /*
-   * Invalid close code
-   */
-  DISCONNECT_BAD_CLOSE_CODE = 2,
-  /*
    * Another connection error
    */
   DISCONNECT_ERROR = 9,
@@ -490,7 +486,6 @@ salty_client_connect_success_t salty_client_connect(const salty_handshake_future
  *
  * - DISCONNECT_OK: The `disconnect_tx` instance was freed
  * - DISCONNECT_NULL_ARGUMENT: The `disconnect_tx` instance was not freed
- * - DISCONNECT_BAD_CLOSE_CODE: The `disconnect_tx` instance was not freed
  * - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
  *
  * Parameters:

@@ -242,9 +242,6 @@ pub enum salty_client_disconnect_success_t {
     /// One of the arguments was a `null` pointer.
     DISCONNECT_NULL_ARGUMENT = 1,
 
-    /// Invalid close code
-    DISCONNECT_BAD_CLOSE_CODE = 2,
-
     /// Another connection error
     DISCONNECT_ERROR = 9,
 }
@@ -1514,7 +1511,6 @@ pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client
 ///
 /// - DISCONNECT_OK: The `disconnect_tx` instance was freed
 /// - DISCONNECT_NULL_ARGUMENT: The `disconnect_tx` instance was not freed
-/// - DISCONNECT_BAD_CLOSE_CODE: The `disconnect_tx` instance was not freed
 /// - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
 ///
 /// Parameters:
@@ -1526,7 +1522,7 @@ pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_disconnect(
     disconnect_tx: *const salty_channel_disconnect_tx_t,
-    close_code: uint16_t, // TODO: Enum
+    close_code: uint16_t,
 ) -> salty_client_disconnect_success_t {
     info!("Disconnecting with close code {}...", close_code);
 
@@ -1537,14 +1533,7 @@ pub unsafe extern "C" fn salty_client_disconnect(
     }
 
     let disconnect_tx_box = Box::from_raw(disconnect_tx as *mut oneshot::Sender<CloseCode>);
-    let code = match CloseCode::from_number(close_code) {
-        Some(code) => code,
-        None => {
-            // Forget about sender, to prevent freeing the memory.
-            mem::forget(disconnect_tx_box);
-            return salty_client_disconnect_success_t::DISCONNECT_BAD_CLOSE_CODE;
-        }
-    };
+    let code = CloseCode::from_number(close_code);
     match (*disconnect_tx_box).send(code) {
         Ok(_) => salty_client_disconnect_success_t::DISCONNECT_OK,
         Err(_) => {
@@ -1629,7 +1618,7 @@ mod tests {
         // Send two messages
         tx.unbounded_send(MessageEvent::Data(Value::Integer(42.into()))).unwrap();
         tx.unbounded_send(MessageEvent::Application(Value::Integer(23.into()))).unwrap();
-        tx.unbounded_send(MessageEvent::Close(CloseCode::from_number(3002).unwrap())).unwrap();
+        tx.unbounded_send(MessageEvent::Close(CloseCode::from_number(3002))).unwrap();
 
         // Receive task data
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
@@ -1706,7 +1695,7 @@ mod tests {
         // Set up thread to post a message after 1.5 seconds
         let child = ::std::thread::spawn(move || {
             ::std::thread::sleep(Duration::from_millis(1500));
-            tx.unbounded_send(MessageEvent::Close(CloseCode::from_number(3000).unwrap())).unwrap();
+            tx.unbounded_send(MessageEvent::Close(CloseCode::from_number(3000))).unwrap();
         });
 
         // Wait for max 1s, but receive no data (timeout)
