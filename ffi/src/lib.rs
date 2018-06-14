@@ -853,10 +853,12 @@ pub unsafe extern "C" fn salty_client_init(
     }
 
     // Get host string
-    let hostname = match CStr::from_ptr(host).to_str() {
+    let hostname_cstr = CStr::from_ptr(host);
+    let hostname = match hostname_cstr.to_str() {
         Ok(host) => host,
-        Err(_) => {
-            error!("host argument is not valid UTF-8");
+        Err(e) => {
+            error!("Host argument is not valid UTF-8: {}", e);
+            trace!("Host bytes (without null termination): {:?}", hostname_cstr.to_bytes());
             return make_init_ret_error(salty_client_init_success_t::INIT_INVALID_HOST);
         },
     };
