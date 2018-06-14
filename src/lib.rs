@@ -110,6 +110,7 @@ impl Task for RelayedDataTask {
         if data.is_some() {
             warn!("Task was initialized with some data, even though it should be `None`!");
         }
+        trace!("Task data: {:?}", data);
         Ok(())
     }
 
