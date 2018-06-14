@@ -107,10 +107,12 @@ impl Task for RelayedDataTask {
     ///
     /// The task should keep track internally whether it has been initialized or not.
     fn init(&mut self, data: &Option<HashMap<String, Value>>) -> Result<(), Error> {
-        if data.is_some() {
-            warn!("Task was initialized with some data, even though it should be `None`!");
+        match data {
+            Some(map) if !map.is_empty() => {
+                warn!("Task was initialized with some data, even though it should be `None`: {:?}", map);
+            },
+			_ => trace!("Task initialization data: {:?}", data),
         }
-        trace!("Task data: {:?}", data);
         Ok(())
     }
 
