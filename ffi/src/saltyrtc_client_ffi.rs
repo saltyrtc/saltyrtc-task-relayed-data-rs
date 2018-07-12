@@ -347,3 +347,20 @@ pub unsafe extern "C" fn salty_event_loop_free(ptr: *const salty_event_loop_t) {
     }
     Box::from_raw(ptr as *mut Core);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_salty_keypair_public_key() {
+        let keypair: *const salty_keypair_t = salty_keypair_new();
+        let keypair_rs: &KeyPair = unsafe { &*(keypair as *const KeyPair) as &KeyPair };
+
+        let pubkey: *const uint8_t = unsafe { salty_keypair_public_key(keypair) };
+        let pubkey_slice: &[u8] = unsafe { slice::from_raw_parts(pubkey, 32) };
+        println!("pubkey: {:?}", pubkey_slice);
+
+        assert_eq!(&keypair_rs.public_key().0, pubkey_slice);
+    }
+}
