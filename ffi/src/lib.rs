@@ -736,7 +736,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
     ptr: *const salty_client_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_relayed_data_client_free: Tried to free a null pointer");
         return;
     }
     Rc::from_raw(ptr as *const RefCell<SaltyClient>);
@@ -748,7 +748,7 @@ pub unsafe extern "C" fn salty_channel_receiver_rx_free(
     ptr: *const salty_channel_receiver_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_receiver_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<MessageEvent>);
@@ -760,7 +760,7 @@ pub unsafe extern "C" fn salty_channel_sender_tx_free(
     ptr: *const salty_channel_sender_tx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_sender_tx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedSender<OutgoingMessage>);
@@ -772,7 +772,7 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
     ptr: *const salty_channel_sender_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_sender_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<OutgoingMessage>);
@@ -784,7 +784,7 @@ pub unsafe extern "C" fn salty_channel_disconnect_tx_free(
     ptr: *const salty_channel_disconnect_tx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_disconnect_tx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut oneshot::Sender<CloseCode>);
@@ -796,7 +796,7 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
     ptr: *const salty_channel_disconnect_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_disconnect_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
@@ -808,7 +808,7 @@ pub unsafe extern "C" fn salty_channel_event_tx_free(
     ptr: *const salty_channel_event_tx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_event_tx_t: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedSender<Event>);
@@ -820,7 +820,7 @@ pub unsafe extern "C" fn salty_channel_event_rx_free(
     ptr: *const salty_channel_event_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_event_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Event>);
@@ -1670,6 +1670,9 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
 
 /// Encrypt raw bytes using the session keys after the handshake has been finished.
 ///
+/// Note: The returned data must be explicitly freed with
+/// `salty_client_encrypt_decrypt_free`!
+///
 /// Parameters:
 ///     client (`*salty_client_t`, borrowed):
 ///         Pointer to a `salty_client_t` instance.
@@ -1698,6 +1701,9 @@ pub unsafe extern "C" fn salty_client_encrypt_with_session_keys(
 
 /// Decrypt raw bytes using the session keys after the handshake has been finished.
 ///
+/// Note: The returned data must be explicitly freed with
+/// `salty_client_encrypt_decrypt_free`!
+///
 /// Parameters:
 ///     client (`*salty_client_t`, borrowed):
 ///         Pointer to a `salty_client_t` instance.
@@ -1722,6 +1728,27 @@ pub unsafe extern "C" fn salty_client_decrypt_with_session_keys(
         data_len,
         nonce,
     )
+}
+
+/// Free memory allocated and returned by `salty_client_encrypt_with_session_keys`
+/// or `salty_client_decrypt_with_session_keys`.
+///
+/// Params:
+///     data (`*uint8_t`, borrowed):
+///         Pointer to the data that should be freed.
+///     data_len (`size_t`, copied):
+///         Number of bytes in the `data` array.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_encrypt_decrypt_free(
+    data: *const uint8_t,
+    data_len: size_t,
+) {
+    // Reclaim and forget vector
+    if data.is_null() {
+        warn!("salty_client_encrypt_decrypt_free: Tried to free a null pointer");
+        return;
+    }
+    Vec::from_raw_parts(data as *mut u8, data_len as usize, data_len as usize);
 }
 
 

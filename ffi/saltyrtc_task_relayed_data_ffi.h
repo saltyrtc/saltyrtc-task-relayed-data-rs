@@ -518,6 +518,9 @@ salty_client_connect_success_t salty_client_connect(const salty_handshake_future
 /*
  * Decrypt raw bytes using the session keys after the handshake has been finished.
  *
+ * Note: The returned data must be explicitly freed with
+ * `salty_client_encrypt_decrypt_free`!
+ *
  * Parameters:
  *     client (`*salty_client_t`, borrowed):
  *         Pointer to a `salty_client_t` instance.
@@ -544,17 +547,33 @@ salty_client_encrypt_decrypt_ret_t salty_client_decrypt_with_session_keys(const 
  * - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
  *
  * Parameters:
- *     disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):
- *         The sending end of the channel for closing the connection.
- *         This object is returned when creating a client instance.
- *     close_code (`uint16_t`, copied):
- *         The close code according to the SaltyRTC protocol specification.
+ * disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):
+ * The sending end of the channel for closing the connection.
+ * This object is returned when creating a client instance.
+ * close_code (`uint16_t`, copied):
+ * The close code according to the SaltyRTC protocol specification.
  */
 salty_client_disconnect_success_t salty_client_disconnect(const salty_channel_disconnect_tx_t *disconnect_tx,
                                                           uint16_t close_code);
 
 /*
+ * Free memory allocated and returned by `salty_client_encrypt_with_session_keys`
+ * or `salty_client_decrypt_with_session_keys`.
+ *
+ * Params:
+ *     data (`*uint8_t`, borrowed):
+ *         Pointer to the data that should be freed.
+ *     data_len (`size_t`, copied):
+ *         Number of bytes in the `data` array.
+ */
+void salty_client_encrypt_decrypt_free(const uint8_t *data,
+                                       size_t data_len);
+
+/*
  * Encrypt raw bytes using the session keys after the handshake has been finished.
+ *
+ * Note: The returned data must be explicitly freed with
+ * `salty_client_encrypt_decrypt_free`!
  *
  * Parameters:
  *     client (`*salty_client_t`, borrowed):
