@@ -77,6 +77,31 @@ enum salty_client_disconnect_success_t {
 typedef uint8_t salty_client_disconnect_success_t;
 
 /*
+ * Result type with all potential encrypt/decrypt error codes.
+ *
+ * If no error happened, the value should be `ENCRYPT_DECRYPT_OK` (0).
+ */
+enum salty_client_encrypt_decrypt_success_t {
+  /*
+   * No error.
+   */
+  ENCRYPT_DECRYPT_OK = 0,
+  /*
+   * One of the arguments was a `null` pointer.
+   */
+  ENCRYPT_DECRYPT_NULL_ARGUMENT = 1,
+  /*
+   * The peer has not yet been determined.
+   */
+  ENCRYPT_DECRYPT_NO_PEER = 2,
+  /*
+   * Other error
+   */
+  ENCRYPT_DECRYPT_ERROR = 9,
+};
+typedef uint8_t salty_client_encrypt_decrypt_success_t;
+
+/*
  * Result type with all potential init error codes.
  *
  * If no error happened, the value should be `INIT_OK` (0).
@@ -328,6 +353,18 @@ typedef struct salty_keypair_t salty_keypair_t;
 typedef struct salty_remote_t salty_remote_t;
 
 /*
+ * The return value when encrypting or decrypting raw data.
+ *
+ * Note: Before accessing `bytes`, make sure to check the `success` field for
+ * errors. If an error occurred, the other fields will be `null`.
+ */
+typedef struct {
+  salty_client_encrypt_decrypt_success_t success;
+  const uint8_t *bytes;
+  size_t bytes_len;
+} salty_client_encrypt_decrypt_ret_t;
+
+/*
  * The return value when initializing a connection.
  *
  * Note: Before accessing `connect_future`, make sure to check the `success`
@@ -479,6 +516,27 @@ salty_client_connect_success_t salty_client_connect(const salty_handshake_future
                                                     const salty_channel_disconnect_rx_t *disconnect_rx);
 
 /*
+ * Decrypt raw bytes using the session keys after the handshake has been finished.
+ *
+ * Note: The returned data must be explicitly freed with
+ * `salty_client_encrypt_decrypt_free`!
+ *
+ * Parameters:
+ *     client (`*salty_client_t`, borrowed):
+ *         Pointer to a `salty_client_t` instance.
+ *     data (`*uint8_t`, borrowed):
+ *         Pointer to the data that should be decrypted.
+ *     data_len (`size_t`, copied):
+ *         Number of bytes in the `data` array.
+ *     nonce (`*uint8_t`, borrowed):
+ *         Pointer to a 24 byte array containing the nonce used for decryption.
+ */
+salty_client_encrypt_decrypt_ret_t salty_client_decrypt_with_session_keys(const salty_client_t *client,
+                                                                          const uint8_t *data,
+                                                                          size_t data_len,
+                                                                          const uint8_t *nonce);
+
+/*
  * Close the connection.
  *
  * Depending on whether this succeeds or not, the `disconnect_tx` instance is
@@ -489,14 +547,48 @@ salty_client_connect_success_t salty_client_connect(const salty_handshake_future
  * - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
  *
  * Parameters:
- *     disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):
- *         The sending end of the channel for closing the connection.
- *         This object is returned when creating a client instance.
- *     close_code (`uint16_t`, copied):
- *         The close code according to the SaltyRTC protocol specification.
+ * disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):
+ * The sending end of the channel for closing the connection.
+ * This object is returned when creating a client instance.
+ * close_code (`uint16_t`, copied):
+ * The close code according to the SaltyRTC protocol specification.
  */
 salty_client_disconnect_success_t salty_client_disconnect(const salty_channel_disconnect_tx_t *disconnect_tx,
                                                           uint16_t close_code);
+
+/*
+ * Free memory allocated and returned by `salty_client_encrypt_with_session_keys`
+ * or `salty_client_decrypt_with_session_keys`.
+ *
+ * Params:
+ *     data (`*uint8_t`, borrowed):
+ *         Pointer to the data that should be freed.
+ *     data_len (`size_t`, copied):
+ *         Number of bytes in the `data` array.
+ */
+void salty_client_encrypt_decrypt_free(const uint8_t *data,
+                                       size_t data_len);
+
+/*
+ * Encrypt raw bytes using the session keys after the handshake has been finished.
+ *
+ * Note: The returned data must be explicitly freed with
+ * `salty_client_encrypt_decrypt_free`!
+ *
+ * Parameters:
+ *     client (`*salty_client_t`, borrowed):
+ *         Pointer to a `salty_client_t` instance.
+ *     data (`*uint8_t`, borrowed):
+ *         Pointer to the data that should be encrypted.
+ *     data_len (`size_t`, copied):
+ *         Number of bytes in the `data` array.
+ *     nonce (`*uint8_t`, borrowed):
+ *         Pointer to a 24 byte array containing the nonce used for encryption.
+ */
+salty_client_encrypt_decrypt_ret_t salty_client_encrypt_with_session_keys(const salty_client_t *client,
+                                                                          const uint8_t *data,
+                                                                          size_t data_len,
+                                                                          const uint8_t *nonce);
 
 /*
  * Prepare a connection to the specified SaltyRTC server, but do not connect yet.

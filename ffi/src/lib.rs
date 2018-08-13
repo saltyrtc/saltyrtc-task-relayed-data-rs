@@ -43,7 +43,7 @@ use std::rc::Rc;
 use std::slice;
 use std::time::Duration;
 
-use libc::{uint8_t, uint16_t, uint32_t, uintptr_t, c_char};
+use libc::{uint8_t, uint16_t, uint32_t, uintptr_t, size_t, c_char};
 use rmp_serde as rmps;
 use saltyrtc_client::{SaltyClient, SaltyClientBuilder, CloseCode, WsClient, Event};
 use saltyrtc_client::crypto::{KeyPair, PublicKey, AuthToken};
@@ -377,6 +377,38 @@ pub struct salty_client_recv_event_ret_t {
     pub event: *const salty_event_t,
 }
 
+/// The return value when encrypting or decrypting raw data.
+///
+/// Note: Before accessing `bytes`, make sure to check the `success` field for
+/// errors. If an error occurred, the other fields will be `null`.
+#[repr(C)]
+#[no_mangle]
+pub struct salty_client_encrypt_decrypt_ret_t {
+    success: salty_client_encrypt_decrypt_success_t,
+    bytes: *const uint8_t,
+    bytes_len: size_t,
+}
+
+/// Result type with all potential encrypt/decrypt error codes.
+///
+/// If no error happened, the value should be `ENCRYPT_DECRYPT_OK` (0).
+#[repr(u8)]
+#[no_mangle]
+#[derive(Debug, PartialEq, Eq)]
+pub enum salty_client_encrypt_decrypt_success_t {
+    /// No error.
+    ENCRYPT_DECRYPT_OK = 0,
+
+    /// One of the arguments was a `null` pointer.
+    ENCRYPT_DECRYPT_NULL_ARGUMENT = 1,
+
+    /// The peer has not yet been determined.
+    ENCRYPT_DECRYPT_NO_PEER = 2,
+
+    /// Other error
+    ENCRYPT_DECRYPT_ERROR = 9,
+}
+
 
 // *** HELPER FUNCTIONS *** //
 
@@ -704,7 +736,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
     ptr: *const salty_client_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_relayed_data_client_free: Tried to free a null pointer");
         return;
     }
     Rc::from_raw(ptr as *const RefCell<SaltyClient>);
@@ -716,7 +748,7 @@ pub unsafe extern "C" fn salty_channel_receiver_rx_free(
     ptr: *const salty_channel_receiver_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_receiver_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<MessageEvent>);
@@ -728,7 +760,7 @@ pub unsafe extern "C" fn salty_channel_sender_tx_free(
     ptr: *const salty_channel_sender_tx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_sender_tx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedSender<OutgoingMessage>);
@@ -740,7 +772,7 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
     ptr: *const salty_channel_sender_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_sender_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<OutgoingMessage>);
@@ -752,7 +784,7 @@ pub unsafe extern "C" fn salty_channel_disconnect_tx_free(
     ptr: *const salty_channel_disconnect_tx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_disconnect_tx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut oneshot::Sender<CloseCode>);
@@ -764,7 +796,7 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
     ptr: *const salty_channel_disconnect_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_disconnect_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
@@ -776,7 +808,7 @@ pub unsafe extern "C" fn salty_channel_event_tx_free(
     ptr: *const salty_channel_event_tx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_event_tx_t: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedSender<Event>);
@@ -788,7 +820,7 @@ pub unsafe extern "C" fn salty_channel_event_rx_free(
     ptr: *const salty_channel_event_rx_t,
 ) {
     if ptr.is_null() {
-        warn!("Tried to free a null pointer");
+        warn!("salty_channel_event_rx_free: Tried to free a null pointer");
         return;
     }
     Box::from_raw(ptr as *mut mpsc::UnboundedReceiver<Event>);
@@ -1543,7 +1575,180 @@ pub unsafe extern "C" fn salty_client_disconnect(
             salty_client_disconnect_success_t::DISCONNECT_ERROR
         }
     }
+}
 
+enum EncryptDecryptMode {
+    Encrypt,
+    Decrypt,
+}
+
+/// Encrypt or decrypt raw bytes using the session keys after the handshake has been finished.
+///
+/// (Internal helper function.)
+///
+/// Parameters:
+///     client (`*salty_client_t`, borrowed):
+///         Pointer to a `salty_client_t` instance.
+///     data (`*uint8_t`, borrowed):
+///         Pointer to the data that should be en-/decrypted.
+///     data_len (`size_t`, copied):
+///         Number of bytes in the `data` array.
+///     nonce (`*uint8_t`, borrowed):
+///         Pointer to a 24 byte array containing the nonce used for en-/decryption.
+unsafe fn salty_client_encrypt_decrypt_with_session_keys(
+    mode: EncryptDecryptMode,
+    client: *const salty_client_t,
+    data: *const uint8_t,
+    data_len: size_t,
+    nonce: *const uint8_t,
+) -> salty_client_encrypt_decrypt_ret_t {
+    let func_name = match mode {
+        EncryptDecryptMode::Encrypt => "salty_client_encrypt_with_session_keys",
+        EncryptDecryptMode::Decrypt => "salty_client_decrypt_with_session_keys",
+    };
+
+    // Helper function: Error
+    fn make_error(reason: salty_client_encrypt_decrypt_success_t) -> salty_client_encrypt_decrypt_ret_t {
+        salty_client_encrypt_decrypt_ret_t { success: reason, bytes: ptr::null(), bytes_len: 0 }
+    }
+
+    // Null pointer checks
+    if client.is_null() {
+        error!("Client pointer is null");
+        return make_error(salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_NULL_ARGUMENT);
+    }
+    if data.is_null() {
+        error!("Data pointer is null");
+        return make_error(salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_NULL_ARGUMENT);
+    }
+    if nonce.is_null() {
+        error!("Nonce pointer is null");
+        return make_error(salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_NULL_ARGUMENT);
+    }
+
+    // Recreate client RC
+    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
+
+    // Clone RC so that the client instance can be reused
+    let client_rc_clone = client_rc.clone();
+    mem::forget(client_rc);
+
+    // Get reference to data and nonce
+    let data_slice: &[u8] = slice::from_raw_parts(data, data_len as usize);
+    let nonce_slice: &[u8] = slice::from_raw_parts(data, 24);
+
+    // Encrypt or decrypt. Get back result with vector.
+    let result = match mode {
+        EncryptDecryptMode::Encrypt => client_rc_clone.borrow()
+            .encrypt_raw_with_session_keys(data_slice, nonce_slice),
+        EncryptDecryptMode::Decrypt => client_rc_clone.borrow()
+            .decrypt_raw_with_session_keys(data_slice, nonce_slice),
+    };
+    let ciphertext = match result {
+        Ok(vec) => vec,
+        Err(SaltyError::NoPeer) => {
+            error!("{}: Peer has not yet been established", func_name);
+            return make_error(salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_NO_PEER);
+        },
+        Err(e) => {
+            error!("{}: {}", func_name, e);
+            return make_error(salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_ERROR);
+        }
+    };
+
+    // Get pointer to bytes on heap
+    let ciphertext_box = ciphertext.into_boxed_slice();
+    let ciphertext_len = ciphertext_box.len();
+    let ciphertext_ptr = Box::into_raw(ciphertext_box) as *const uint8_t;
+
+    salty_client_encrypt_decrypt_ret_t {
+        success: salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_OK,
+        bytes: ciphertext_ptr,
+        bytes_len: ciphertext_len,
+    }
+}
+
+/// Encrypt raw bytes using the session keys after the handshake has been finished.
+///
+/// Note: The returned data must be explicitly freed with
+/// `salty_client_encrypt_decrypt_free`!
+///
+/// Parameters:
+///     client (`*salty_client_t`, borrowed):
+///         Pointer to a `salty_client_t` instance.
+///     data (`*uint8_t`, borrowed):
+///         Pointer to the data that should be encrypted.
+///     data_len (`size_t`, copied):
+///         Number of bytes in the `data` array.
+///     nonce (`*uint8_t`, borrowed):
+///         Pointer to a 24 byte array containing the nonce used for encryption.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_encrypt_with_session_keys(
+    client: *const salty_client_t,
+    data: *const uint8_t,
+    data_len: size_t,
+    nonce: *const uint8_t,
+) -> salty_client_encrypt_decrypt_ret_t {
+    trace!("salty_client_encrypt_with_session_keys");
+    salty_client_encrypt_decrypt_with_session_keys(
+        EncryptDecryptMode::Encrypt,
+        client,
+        data,
+        data_len,
+        nonce,
+    )
+}
+
+/// Decrypt raw bytes using the session keys after the handshake has been finished.
+///
+/// Note: The returned data must be explicitly freed with
+/// `salty_client_encrypt_decrypt_free`!
+///
+/// Parameters:
+///     client (`*salty_client_t`, borrowed):
+///         Pointer to a `salty_client_t` instance.
+///     data (`*uint8_t`, borrowed):
+///         Pointer to the data that should be decrypted.
+///     data_len (`size_t`, copied):
+///         Number of bytes in the `data` array.
+///     nonce (`*uint8_t`, borrowed):
+///         Pointer to a 24 byte array containing the nonce used for decryption.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_decrypt_with_session_keys(
+    client: *const salty_client_t,
+    data: *const uint8_t,
+    data_len: size_t,
+    nonce: *const uint8_t,
+) -> salty_client_encrypt_decrypt_ret_t {
+    trace!("salty_client_decrypt_with_session_keys");
+    salty_client_encrypt_decrypt_with_session_keys(
+        EncryptDecryptMode::Decrypt,
+        client,
+        data,
+        data_len,
+        nonce,
+    )
+}
+
+/// Free memory allocated and returned by `salty_client_encrypt_with_session_keys`
+/// or `salty_client_decrypt_with_session_keys`.
+///
+/// Params:
+///     data (`*uint8_t`, borrowed):
+///         Pointer to the data that should be freed.
+///     data_len (`size_t`, copied):
+///         Number of bytes in the `data` array.
+#[no_mangle]
+pub unsafe extern "C" fn salty_client_encrypt_decrypt_free(
+    data: *const uint8_t,
+    data_len: size_t,
+) {
+    // Reclaim and forget vector
+    if data.is_null() {
+        warn!("salty_client_encrypt_decrypt_free: Tried to free a null pointer");
+        return;
+    }
+    Vec::from_raw_parts(data as *mut u8, data_len as usize, data_len as usize);
 }
 
 
