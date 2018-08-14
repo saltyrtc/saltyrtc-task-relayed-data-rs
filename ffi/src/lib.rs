@@ -1635,7 +1635,7 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
 
     // Get reference to data and nonce
     let data_slice: &[u8] = slice::from_raw_parts(data, data_len as usize);
-    let nonce_slice: &[u8] = slice::from_raw_parts(data, 24);
+    let nonce_slice: &[u8] = slice::from_raw_parts(nonce, 24);
 
     // Encrypt or decrypt. Get back result with vector.
     let result = match mode {
