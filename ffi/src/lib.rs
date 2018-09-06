@@ -440,6 +440,8 @@ unsafe fn create_client_builder(
     remote: *const salty_remote_t,
     ping_interval_seconds: uint32_t,
 ) -> Result<ClientBuilderRet, salty_relayed_data_success_t> {
+    trace!("create_client_builder");
+
     // Null checks
     if keypair.is_null() {
         error!("Keypair pointer is null");
@@ -530,6 +532,8 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     trusted_responder_key: *const uint8_t,
     server_public_permanent_key: *const uint8_t,
 ) -> salty_relayed_data_client_ret_t {
+    trace!("salty_relayed_data_initiator_new");
+
     // Parse arguments and create SaltyRTC builder
     let ret = match create_client_builder(keypair, server_public_permanent_key, remote, ping_interval_seconds) {
         Ok(val) => val,
@@ -612,6 +616,8 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
     auth_token: *const uint8_t,
     server_public_permanent_key: *const uint8_t,
 ) -> salty_relayed_data_client_ret_t {
+    trace!("salty_relayed_data_responder_new");
+
     // Parse arguments and create SaltyRTC builder
     let ret = match create_client_builder(keypair, server_public_permanent_key, remote, ping_interval_seconds) {
         Ok(val) => val,
@@ -702,6 +708,8 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
     ptr: *const salty_client_t,
 ) -> *const uint8_t {
+    trace!("salty_relayed_data_client_auth_token");
+
     if ptr.is_null() {
         error!("salty_relayed_data_client_auth_token: Tried to dereference a null pointer");
         return ptr::null();
@@ -734,6 +742,8 @@ pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
 pub unsafe extern "C" fn salty_relayed_data_client_free(
     ptr: *const salty_client_t,
 ) {
+    trace!("salty_relayed_data_client_free");
+
     if ptr.is_null() {
         warn!("salty_relayed_data_client_free: Tried to free a null pointer");
         return;
@@ -746,6 +756,8 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
 pub unsafe extern "C" fn salty_channel_receiver_rx_free(
     ptr: *const salty_channel_receiver_rx_t,
 ) {
+    trace!("salty_channel_receiver_rx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_receiver_rx_free: Tried to free a null pointer");
         return;
@@ -758,6 +770,8 @@ pub unsafe extern "C" fn salty_channel_receiver_rx_free(
 pub unsafe extern "C" fn salty_channel_sender_tx_free(
     ptr: *const salty_channel_sender_tx_t,
 ) {
+    trace!("salty_channel_sender_tx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_sender_tx_free: Tried to free a null pointer");
         return;
@@ -770,6 +784,8 @@ pub unsafe extern "C" fn salty_channel_sender_tx_free(
 pub unsafe extern "C" fn salty_channel_sender_rx_free(
     ptr: *const salty_channel_sender_rx_t,
 ) {
+    trace!("salty_channel_sender_rx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_sender_rx_free: Tried to free a null pointer");
         return;
@@ -782,6 +798,8 @@ pub unsafe extern "C" fn salty_channel_sender_rx_free(
 pub unsafe extern "C" fn salty_channel_disconnect_tx_free(
     ptr: *const salty_channel_disconnect_tx_t,
 ) {
+    trace!("salty_channel_disconnect_tx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_disconnect_tx_free: Tried to free a null pointer");
         return;
@@ -794,6 +812,8 @@ pub unsafe extern "C" fn salty_channel_disconnect_tx_free(
 pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
     ptr: *const salty_channel_disconnect_rx_t,
 ) {
+    trace!("salty_channel_disconnect_tx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_disconnect_rx_free: Tried to free a null pointer");
         return;
@@ -806,6 +826,8 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
 pub unsafe extern "C" fn salty_channel_event_tx_free(
     ptr: *const salty_channel_event_tx_t,
 ) {
+    trace!("salty_channel_event_tx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_event_tx_t: Tried to free a null pointer");
         return;
@@ -818,6 +840,8 @@ pub unsafe extern "C" fn salty_channel_event_tx_free(
 pub unsafe extern "C" fn salty_channel_event_rx_free(
     ptr: *const salty_channel_event_rx_t,
 ) {
+    trace!("salty_channel_event_rx_free");
+
     if ptr.is_null() {
         warn!("salty_channel_event_rx_free: Tried to free a null pointer");
         return;
@@ -1174,6 +1198,8 @@ unsafe fn salty_client_send_bytes(
     msg: *const uint8_t,
     msg_len: uint32_t,
 ) -> salty_client_send_success_t {
+    trace!("salty_client_send_bytes");
+
     // Null pointer checks
     if sender_tx.is_null() {
         error!("Sender channel pointer is null");
@@ -1348,6 +1374,7 @@ pub unsafe extern "C" fn salty_client_recv_msg(
     receiver_rx: *const salty_channel_receiver_rx_t,
     timeout_ms: *const uint32_t,
 ) -> salty_client_recv_msg_ret_t {
+    trace!("salty_client_recv_msg");
 
     // Helper function: Error
     fn make_error(reason: salty_client_recv_success_t) -> salty_client_recv_msg_ret_t {
@@ -1439,6 +1466,8 @@ pub unsafe extern "C" fn salty_client_recv_msg(
 /// Free a `salty_client_recv_msg_ret_t` instance.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_recv_msg_ret_free(recv_ret: salty_client_recv_msg_ret_t) {
+    trace!("salty_client_recv_ret_free");
+
     if recv_ret.msg.is_null() {
         debug!("salty_client_recv_msg_ret_free: Message is already null");
         return;
@@ -1469,6 +1498,7 @@ pub unsafe extern "C" fn salty_client_recv_event(
     event_rx: *const salty_channel_event_rx_t,
     timeout_ms: *const uint32_t,
 ) -> salty_client_recv_event_ret_t {
+    trace!("salty_client_recv_event");
 
     // Helper function: Error
     fn make_error(reason: salty_client_recv_success_t) -> salty_client_recv_event_ret_t {
@@ -1529,6 +1559,7 @@ pub unsafe extern "C" fn salty_client_recv_event(
 /// Free a `salty_client_recv_event_ret_t` instance.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client_recv_event_ret_t) {
+    trace!("salty_client_recv_event_ret_free");
     if !recv_ret.event.is_null() {
         Box::from_raw(recv_ret.event as *mut salty_event_t);
     }
@@ -1555,6 +1586,7 @@ pub unsafe extern "C" fn salty_client_disconnect(
     disconnect_tx: *const salty_channel_disconnect_tx_t,
     close_code: uint16_t,
 ) -> salty_client_disconnect_success_t {
+    trace!("salty_client_disconnect");
     info!("Disconnecting with close code {}...", close_code);
 
     // Null pointer checks
@@ -1599,6 +1631,8 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
     data_len: size_t,
     nonce: *const uint8_t,
 ) -> salty_client_encrypt_decrypt_ret_t {
+    trace!("salty_client_encrypt_decrypt_with_session_keys");
+
     let func_name = match mode {
         EncryptDecryptMode::Encrypt => "salty_client_encrypt_with_session_keys",
         EncryptDecryptMode::Decrypt => "salty_client_decrypt_with_session_keys",
@@ -1744,6 +1778,8 @@ pub unsafe extern "C" fn salty_client_encrypt_decrypt_free(
     data: *const uint8_t,
     data_len: size_t,
 ) {
+    trace!("salty_client_encrypt_decrypt_free");
+
     // Reclaim and forget vector
     if data.is_null() {
         warn!("salty_client_encrypt_decrypt_free: Tried to free a null pointer");
