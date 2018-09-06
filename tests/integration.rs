@@ -14,12 +14,11 @@ extern crate tokio_timer;
 
 
 use std::boxed::Box;
-use std::cell::RefCell;
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use saltyrtc_client::{WsClient, SaltyClient, CloseCode, BoxedFuture};
@@ -114,9 +113,9 @@ fn integration_test() {
     let (initiator, rx_initiator) = setup_initiator(initiator_keypair, core.remote());
     let (responder, rx_responder) = setup_responder(responder_keypair, core.remote(), pubkey, initiator.auth_token().cloned().unwrap());
 
-    // Wrap `SaltyClient`s in `Rc<RefCell<_>>`
-    let initiator = Rc::new(RefCell::new(initiator));
-    let responder = Rc::new(RefCell::new(responder));
+    // Wrap `SaltyClient`s in `Arc<RwLock<_>>`
+    let initiator = Arc::new(RwLock::new(initiator));
+    let responder = Arc::new(RwLock::new(responder));
 
     // Futures to connect to server
     let timeout = Some(Duration::from_secs(2));
