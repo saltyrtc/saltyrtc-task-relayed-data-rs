@@ -8,11 +8,10 @@ extern crate saltyrtc_client;
 extern crate saltyrtc_task_relayed_data;
 extern crate tokio_core;
 
-use std::cell::RefCell;
 use std::env;
 use std::io::Write;
 use std::process;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use byteorder::{BigEndian, WriteBytesExt};
@@ -197,7 +196,7 @@ fn main() {
     let task = RelayedDataTask::new(core.remote(), incoming_tx);
 
     // Set up client instance
-    let client = Rc::new(RefCell::new({
+    let client = Arc::new(RwLock::new({
         let builder = SaltyClient::build(keypair)
             .add_task(Box::new(task))
             .with_ping_interval(Some(ping_interval));
@@ -238,7 +237,7 @@ fn main() {
         &server_host,
         server_port,
         &pubkey.0,
-        client.borrow().auth_token().unwrap().secret_key_bytes(),
+        client.read().unwrap().auth_token().unwrap().secret_key_bytes(),
         &server_pubkey,
     );
 

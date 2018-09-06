@@ -34,12 +34,11 @@ mod constants;
 mod nonblocking;
 pub mod saltyrtc_client_ffi;
 
-use std::cell::RefCell;
 use std::ffi::CStr;
 use std::io::{BufReader, Read};
 use std::mem;
 use std::ptr;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use std::slice;
 use std::time::Duration;
 
@@ -575,7 +574,7 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
-        client: Rc::into_raw(Rc::new(RefCell::new(client))) as *const salty_client_t,
+        client: Arc::into_raw(Arc::new(RwLock::new(client))) as *const salty_client_t,
         receiver_rx: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_rx_t,
         sender_tx: Box::into_raw(Box::new(ret.sender_tx)) as *const salty_channel_sender_tx_t,
         sender_rx: Box::into_raw(Box::new(ret.sender_rx)) as *const salty_channel_sender_rx_t,
@@ -681,7 +680,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 
     salty_relayed_data_client_ret_t {
         success: salty_relayed_data_success_t::OK,
-        client: Rc::into_raw(Rc::new(RefCell::new(client))) as *const salty_client_t,
+        client: Arc::into_raw(Arc::new(RwLock::new(client))) as *const salty_client_t,
         receiver_rx: Box::into_raw(Box::new(ret.receiver_rx)) as *const salty_channel_receiver_rx_t,
         sender_tx: Box::into_raw(Box::new(ret.sender_tx)) as *const salty_channel_sender_tx_t,
         sender_rx: Box::into_raw(Box::new(ret.sender_rx)) as *const salty_channel_sender_rx_t,
@@ -697,35 +696,35 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 ///     Do not reuse the reference after the `salty_client_t` instance has been freed!
 /// Returns:
 ///     A null pointer if the parameter is null, if no auth token is set on the client
-///     or if the rc cannot be borrowed.
+///     or if the arc cannot be borrowed.
 ///     Pointer to a 32 byte `uint8_t` array otherwise.
 #[no_mangle]
 pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
     ptr: *const salty_client_t,
 ) -> *const uint8_t {
     if ptr.is_null() {
-        error!("Tried to dereference a null pointer");
+        error!("salty_relayed_data_client_auth_token: Tried to dereference a null pointer");
         return ptr::null();
     }
 
-    // Recreate Rc from pointer
-    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(ptr as *const RefCell<SaltyClient>);
+    // Recreate Arc from pointer
+    let client_arc: Arc<RwLock<SaltyClient>> = Arc::from_raw(ptr as *const RwLock<SaltyClient>);
 
     // Determine pointer to auth token
-    let retval = match client_rc.try_borrow() {
+    let retval = match client_arc.read() {
         Ok(client_ref) => match client_ref.auth_token() {
             Some(token) => token.secret_key_bytes().as_ptr(),
             None => ptr::null(),
         },
         Err(e) => {
-            error!("Could not borrow client RC: {}", e);
+            error!("salty_relayed_data_client_auth_token: Could not read-lock client: {}", e);
             ptr::null()
         }
     };
 
-    // We must ensure that the Rc is not dropped, otherwise – if it's the last reference to
+    // We must ensure that the Arc is not dropped, otherwise – if it's the last reference to
     // the underlying data – the data on the heap would be dropped too.
-    mem::forget(client_rc);
+    mem::forget(client_arc);
 
     retval
 }
@@ -739,7 +738,7 @@ pub unsafe extern "C" fn salty_relayed_data_client_free(
         warn!("salty_relayed_data_client_free: Tried to free a null pointer");
         return;
     }
-    Rc::from_raw(ptr as *const RefCell<SaltyClient>);
+    Arc::from_raw(ptr as *const RwLock<SaltyClient>);
 }
 
 /// Free a `salty_channel_receiver_rx_t` instance.
@@ -895,13 +894,13 @@ pub unsafe extern "C" fn salty_client_init(
         },
     };
 
-    // Recreate client RC
-    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
+    // Recreate client Arc
+    let client_arc: Arc<RwLock<SaltyClient>> = Arc::from_raw(client as *const RwLock<SaltyClient>);
 
-    // Clone RC so that the client instance can be reused
-    let client_rc_connect = client_rc.clone();
-    let client_rc_handshake = client_rc.clone();
-    mem::forget(client_rc);
+    // Clone Arc so that the client instance can be reused
+    let client_arc_connect = client_arc.clone();
+    let client_arc_handshake = client_arc.clone();
+    mem::forget(client_arc);
 
     // Get event loop reference
     let core = &mut *(event_loop as *mut Core) as &mut Core;
@@ -952,7 +951,7 @@ pub unsafe extern "C" fn salty_client_init(
         port,
         Some(tls_connector),
         &core.handle(),
-        client_rc_connect,
+        client_arc_connect,
     ) {
         Ok(data) => data,
         Err(e) => {
@@ -976,7 +975,7 @@ pub unsafe extern "C" fn salty_client_init(
     let handshake_future = connect_future
         .and_then(move |ws_client| saltyrtc_client::do_handshake(
             ws_client,
-            client_rc_handshake,
+            client_arc_handshake,
             event_tx_clone,
             timeout,
         ));
@@ -1033,12 +1032,12 @@ pub unsafe extern "C" fn salty_client_connect(
         return salty_client_connect_success_t::CONNECT_NULL_ARGUMENT;
     }
 
-    // Recreate client RC
-    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
+    // Recreate client Arc
+    let client_arc: Arc<RwLock<SaltyClient>> = Arc::from_raw(client as *const RwLock<SaltyClient>);
 
-    // Clone RC so that the client instance can be reused
-    let client_rc_task_loop = client_rc.clone();
-    mem::forget(client_rc);
+    // Clone Arc so that the client instance can be reused
+    let client_arc_task_loop = client_arc.clone();
+    mem::forget(client_arc);
 
     // Get event loop reference
     let core = &mut *(event_loop as *mut Core) as &mut Core;
@@ -1083,7 +1082,7 @@ pub unsafe extern "C" fn salty_client_connect(
     // Create task loop future
     let (task, task_loop) = match saltyrtc_client::task_loop(
         ws_client,
-        client_rc_task_loop,
+        client_arc_task_loop,
         *event_tx_box,
     ) {
         Ok(val) => val,
@@ -1624,12 +1623,12 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
         return make_error(salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_NULL_ARGUMENT);
     }
 
-    // Recreate client RC
-    let client_rc: Rc<RefCell<SaltyClient>> = Rc::from_raw(client as *const RefCell<SaltyClient>);
+    // Recreate client Arc
+    let client_arc: Arc<RwLock<SaltyClient>> = Arc::from_raw(client as *const RwLock<SaltyClient>);
 
-    // Clone RC so that the client instance can be reused
-    let client_rc_clone = client_rc.clone();
-    mem::forget(client_rc);
+    // Clone Arc so that the client instance can be reused
+    let client_arc_clone = client_arc.clone();
+    mem::forget(client_arc);
 
     // Get reference to data and nonce
     let data_slice: &[u8] = slice::from_raw_parts(data, data_len as usize);
@@ -1637,10 +1636,14 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
 
     // Encrypt or decrypt. Get back result with vector.
     let result = match mode {
-        EncryptDecryptMode::Encrypt => client_rc_clone.borrow()
-            .encrypt_raw_with_session_keys(data_slice, nonce_slice),
-        EncryptDecryptMode::Decrypt => client_rc_clone.borrow()
-            .decrypt_raw_with_session_keys(data_slice, nonce_slice),
+        EncryptDecryptMode::Encrypt => client_arc_clone
+            .read()
+            .map_err(|e| SaltyError::Crash(format!("Could not read-lock SaltyClient: {}", e)))
+            .and_then(|client| client.encrypt_raw_with_session_keys(data_slice, nonce_slice)),
+        EncryptDecryptMode::Decrypt => client_arc_clone
+            .read()
+            .map_err(|e| SaltyError::Crash(format!("Could not read-lock SaltyClient: {}", e)))
+            .and_then(|client| client.decrypt_raw_with_session_keys(data_slice, nonce_slice)),
     };
     let ciphertext = match result {
         Ok(vec) => vec,
