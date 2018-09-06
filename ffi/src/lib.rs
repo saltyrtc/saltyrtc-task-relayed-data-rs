@@ -1530,11 +1530,9 @@ pub unsafe extern "C" fn salty_client_recv_event(
 /// Free a `salty_client_recv_event_ret_t` instance.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client_recv_event_ret_t) {
-    if recv_ret.event.is_null() {
-        debug!("salty_client_recv_event_ret_free: Event is already null");
-        return;
+    if !recv_ret.event.is_null() {
+        Box::from_raw(recv_ret.event as *mut salty_event_t);
     }
-    Box::from_raw(recv_ret.event as *mut salty_event_t);
 }
 
 
