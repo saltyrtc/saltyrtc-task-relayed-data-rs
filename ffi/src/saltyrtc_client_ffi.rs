@@ -17,7 +17,6 @@ use std::ptr;
 use std::slice;
 use std::sync::Mutex;
 
-use libc::uint8_t;
 use log::LevelFilter;
 use log4rs::{Handle as LogHandle, init_config};
 use log4rs::append::console::ConsoleAppender;
@@ -91,7 +90,7 @@ fn make_log_config(level: LevelFilter) -> Result<Config, String> {
 ///     A boolean indicating whether logging was setup successfully.
 ///     If setting up the logger failed, an error message will be written to stdout.
 #[no_mangle]
-pub extern "C" fn salty_log_init(level: uint8_t) -> bool {
+pub extern "C" fn salty_log_init(level: u8) -> bool {
     // Get access to static log handle
     let mut handle_opt = match LOG_HANDLE.lock() {
         Ok(handle_opt) => handle_opt,
@@ -154,7 +153,7 @@ pub extern "C" fn salty_log_init(level: uint8_t) -> bool {
 ///     A boolean indicating whether logging was updated successfully.
 ///     If updating the logger failed, an error message will be written to stdout.
 #[no_mangle]
-pub extern "C" fn salty_log_change_level(level: uint8_t) -> bool {
+pub extern "C" fn salty_log_change_level(level: u8) -> bool {
     // Log level
     let level_filter = match level {
         LEVEL_TRACE => LevelFilter::Trace,
@@ -219,7 +218,7 @@ pub extern "C" fn salty_keypair_new() -> *const salty_keypair_t {
 ///     A null pointer if restoring a keystore from a private key failed.
 ///     A pointer to a `salty_keypair_t` otherwise.
 #[no_mangle]
-pub unsafe extern "C" fn salty_keypair_restore(ptr: *const uint8_t) -> *const salty_keypair_t {
+pub unsafe extern "C" fn salty_keypair_restore(ptr: *const u8) -> *const salty_keypair_t {
     if ptr.is_null() {
         error!("Tried to dereference a null pointer");
         return ptr::null();
@@ -244,7 +243,7 @@ pub unsafe extern "C" fn salty_keypair_restore(ptr: *const uint8_t) -> *const sa
 ///     Note that the lifetime of the returned pointer is tied to the keypair.
 ///     If the keypair is freed, this pointer is invalidated.
 #[no_mangle]
-pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -> *const uint8_t {
+pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -> *const u8 {
     if ptr.is_null() {
         error!("Tried to dereference a null pointer");
         return ptr::null();
@@ -262,7 +261,7 @@ pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -
 ///     Note that the lifetime of the returned pointer is tied to the keypair.
 ///     If the keypair is freed, this pointer is invalidated.
 #[no_mangle]
-pub unsafe extern "C" fn salty_keypair_private_key(ptr: *const salty_keypair_t) -> *const uint8_t {
+pub unsafe extern "C" fn salty_keypair_private_key(ptr: *const salty_keypair_t) -> *const u8 {
     if ptr.is_null() {
         error!("Tried to dereference a null pointer");
         return ptr::null();
@@ -357,7 +356,7 @@ mod tests {
         let keypair: *const salty_keypair_t = salty_keypair_new();
         let keypair_rs: &KeyPair = unsafe { &*(keypair as *const KeyPair) as &KeyPair };
 
-        let pubkey: *const uint8_t = unsafe { salty_keypair_public_key(keypair) };
+        let pubkey: *const u8 = unsafe { salty_keypair_public_key(keypair) };
         let pubkey_slice: &[u8] = unsafe { slice::from_raw_parts(pubkey, 32) };
         println!("pubkey: {:?}", pubkey_slice);
 
