@@ -42,7 +42,7 @@ use std::sync::{Arc, RwLock};
 use std::slice;
 use std::time::Duration;
 
-use libc::{uint8_t, uint16_t, uint32_t, uintptr_t, size_t, c_char};
+use libc::{uintptr_t, size_t, c_char};
 use rmp_serde as rmps;
 use saltyrtc_client::{SaltyClient, SaltyClientBuilder, CloseCode, WsClient, Event};
 use saltyrtc_client::crypto::{KeyPair, PublicKey, AuthToken};
@@ -291,9 +291,9 @@ pub enum salty_msg_type_t {
 #[no_mangle]
 pub struct salty_msg_t {
     msg_type: salty_msg_type_t,
-    msg_bytes: *const uint8_t,
+    msg_bytes: *const u8,
     msg_bytes_len: uintptr_t,
-    close_code: uint16_t,
+    close_code: u16,
 }
 
 /// Possible event types.
@@ -328,7 +328,7 @@ pub enum salty_event_type_t {
 pub struct salty_event_t {
     event_type: salty_event_type_t,
     peer_connected: bool,
-    peer_id: uint8_t,
+    peer_id: u8,
 }
 
 /// Result type with all potential event receiving error codes.
@@ -384,7 +384,7 @@ pub struct salty_client_recv_event_ret_t {
 #[no_mangle]
 pub struct salty_client_encrypt_decrypt_ret_t {
     success: salty_client_encrypt_decrypt_success_t,
-    bytes: *const uint8_t,
+    bytes: *const u8,
     bytes_len: size_t,
 }
 
@@ -436,9 +436,9 @@ struct ClientBuilderRet {
 /// Helper function to parse arguments and to create a new `SaltyClientBuilder`.
 unsafe fn create_client_builder(
     keypair: *const salty_keypair_t,
-    server_public_permanent_key: *const uint8_t,
+    server_public_permanent_key: *const u8,
     remote: *const salty_remote_t,
-    ping_interval_seconds: uint32_t,
+    ping_interval_seconds: u32,
 ) -> Result<ClientBuilderRet, salty_relayed_data_success_t> {
     trace!("create_client_builder");
 
@@ -528,9 +528,9 @@ unsafe fn create_client_builder(
 pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     keypair: *const salty_keypair_t,
     remote: *const salty_remote_t,
-    ping_interval_seconds: uint32_t,
-    trusted_responder_key: *const uint8_t,
-    server_public_permanent_key: *const uint8_t,
+    ping_interval_seconds: u32,
+    trusted_responder_key: *const u8,
+    server_public_permanent_key: *const u8,
 ) -> salty_relayed_data_client_ret_t {
     trace!("salty_relayed_data_initiator_new");
 
@@ -611,10 +611,10 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
 pub unsafe extern "C" fn salty_relayed_data_responder_new(
     keypair: *const salty_keypair_t,
     remote: *const salty_remote_t,
-    ping_interval_seconds: uint32_t,
-    initiator_pubkey: *const uint8_t,
-    auth_token: *const uint8_t,
-    server_public_permanent_key: *const uint8_t,
+    ping_interval_seconds: u32,
+    initiator_pubkey: *const u8,
+    auth_token: *const u8,
+    server_public_permanent_key: *const u8,
 ) -> salty_relayed_data_client_ret_t {
     trace!("salty_relayed_data_responder_new");
 
@@ -707,7 +707,7 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
 #[no_mangle]
 pub unsafe extern "C" fn salty_relayed_data_client_auth_token(
     ptr: *const salty_client_t,
-) -> *const uint8_t {
+) -> *const u8 {
     trace!("salty_relayed_data_client_auth_token");
 
     if ptr.is_null() {
@@ -818,7 +818,7 @@ pub unsafe extern "C" fn salty_channel_disconnect_rx_free(
         warn!("salty_channel_disconnect_rx_free: Tried to free a null pointer");
         return;
     }
-    Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
+    let _ = Box::from_raw(ptr as *mut oneshot::Receiver<CloseCode>);
 }
 
 /// Free a `salty_channel_event_tx_t` instance.
@@ -874,12 +874,12 @@ pub unsafe extern "C" fn salty_channel_event_rx_free(
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_init(
     host: *const c_char,
-    port: uint16_t,
+    port: u16,
     client: *const salty_client_t,
     event_loop: *const salty_event_loop_t,
-    timeout_s: uint16_t,
-    ca_cert: *const uint8_t,
-    ca_cert_len: uint32_t,
+    timeout_s: u16,
+    ca_cert: *const u8,
+    ca_cert_len: u32,
 ) -> salty_client_init_ret_t {
     trace!("salty_client_init: Initializing");
 
@@ -946,28 +946,19 @@ pub unsafe extern "C" fn salty_client_init(
     };
 
     // Create TlsConnector
-    macro_rules! unwrap_or_tls_error {
-        ($obj:expr, $errmsg:expr) => {{
-            match $obj {
-                Ok(val) => val,
-                Err(e) => {
-                    error!($errmsg, e);
-                    return make_init_ret_error(salty_client_init_success_t::INIT_TLS_ERROR);
-                }
-            }
-        }}
-    }
-    let supported_protocols = [Protocol::Tlsv12, Protocol::Tlsv11, Protocol::Tlsv10];
-    let mut tls_builder = unwrap_or_tls_error!(TlsConnector::builder(),
-        "Could not create TlsConnectorBuilder: {}");
-    unwrap_or_tls_error!(tls_builder.supported_protocols(&supported_protocols),
-        "Could not set supported TLS protocols: {}");
+    let mut tls_builder = TlsConnector::builder();
+    tls_builder.min_protocol_version(Some(Protocol::Tlsv10));
     if let Some(cert) = ca_cert_opt {
-        unwrap_or_tls_error!(tls_builder.add_root_certificate(cert),
-            "Could not add CA certificate to TlsConnectorBuilder: {}");
+        tls_builder.add_root_certificate(cert);
     }
-    let tls_connector = unwrap_or_tls_error!(tls_builder.build(),
-        "Could not create TlsConnector: {}");
+    let tls_connector = match tls_builder.build() {
+        Ok(val) => val,
+        Err(e) => {
+            error!("Could not create TlsConnector: {}", e);
+            return make_init_ret_error(salty_client_init_success_t::INIT_TLS_ERROR);
+        }
+    };
+
 
     // Create connect future
     let (connect_future, event_channel) = match saltyrtc_client::connect(
@@ -1003,7 +994,7 @@ pub unsafe extern "C" fn salty_client_init(
             event_tx_clone,
             timeout,
         ));
-    let handshake_future_box: Box<Future<Item=WsClient, Error=SaltyError>> = Box::new(handshake_future);
+    let handshake_future_box: Box<dyn Future<Item=WsClient, Error=SaltyError>> = Box::new(handshake_future);
 
     salty_client_init_ret_t {
         success: salty_client_init_success_t::INIT_OK,
@@ -1071,7 +1062,7 @@ pub unsafe extern "C" fn salty_client_connect(
 
     // Get handshake future reference
     let handshake_future_box = Box::from_raw(
-        handshake_future as *mut Box<Future<Item=WsClient, Error=SaltyError>>
+        handshake_future as *mut Box<dyn Future<Item=WsClient, Error=SaltyError>>
     );
 
     // Get channel sender instances
@@ -1129,7 +1120,7 @@ pub unsafe extern "C" fn salty_client_connect(
 
         // Downcast generic Task to a RelayedDataTask
         let rdt: &mut RelayedDataTask = {
-            let downcast_res = (&mut **task_locked as &mut Task)
+            let downcast_res = (&mut **task_locked as &mut dyn Task)
                 .downcast_mut::<RelayedDataTask>();
             match downcast_res {
                 Some(task) => task,
@@ -1195,8 +1186,8 @@ enum OutgoingMessageType {
 unsafe fn salty_client_send_bytes(
     msg_type: OutgoingMessageType,
     sender_tx: *const salty_channel_sender_tx_t,
-    msg: *const uint8_t,
-    msg_len: uint32_t,
+    msg: *const u8,
+    msg_len: u32,
 ) -> salty_client_send_success_t {
     trace!("salty_client_send_bytes");
 
@@ -1254,8 +1245,8 @@ unsafe fn salty_client_send_bytes(
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_send_task_bytes(
     sender_tx: *const salty_channel_sender_tx_t,
-    msg: *const uint8_t,
-    msg_len: uint32_t,
+    msg: *const u8,
+    msg_len: u32,
 ) -> salty_client_send_success_t {
     salty_client_send_bytes(OutgoingMessageType::Task, sender_tx, msg, msg_len)
 }
@@ -1272,8 +1263,8 @@ pub unsafe extern "C" fn salty_client_send_task_bytes(
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_send_application_bytes(
     sender_tx: *const salty_channel_sender_tx_t,
-    msg: *const uint8_t,
-    msg_len: uint32_t,
+    msg: *const u8,
+    msg_len: u32,
 ) -> salty_client_send_success_t {
     salty_client_send_bytes(OutgoingMessageType::Application, sender_tx, msg, msg_len)
 }
@@ -1285,7 +1276,7 @@ enum BlockingMode {
 }
 
 impl BlockingMode {
-    unsafe fn from_timeout_ms(timeout_ms: *const uint32_t) -> Self {
+    unsafe fn from_timeout_ms(timeout_ms: *const u32) -> Self {
         if timeout_ms == ptr::null() {
             BlockingMode::BLOCKING
         } else if *timeout_ms == 0 {
@@ -1372,7 +1363,7 @@ impl BlockingMode {
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_recv_msg(
     receiver_rx: *const salty_channel_receiver_rx_t,
-    timeout_ms: *const uint32_t,
+    timeout_ms: *const u32,
 ) -> salty_client_recv_msg_ret_t {
     trace!("salty_client_recv_msg");
 
@@ -1403,7 +1394,7 @@ pub unsafe extern "C" fn salty_client_recv_msg(
             // Make event struct
             let msg = salty_msg_t {
                 msg_type,
-                msg_bytes: bytes_ptr as *const uint8_t,
+                msg_bytes: bytes_ptr as *const u8,
                 msg_bytes_len: bytes_len,
                 close_code: 0,
             };
@@ -1496,7 +1487,7 @@ pub unsafe extern "C" fn salty_client_recv_msg_ret_free(recv_ret: salty_client_r
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_recv_event(
     event_rx: *const salty_channel_event_rx_t,
-    timeout_ms: *const uint32_t,
+    timeout_ms: *const u32,
 ) -> salty_client_recv_event_ret_t {
     trace!("salty_client_recv_event");
 
@@ -1584,7 +1575,7 @@ pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_disconnect(
     disconnect_tx: *const salty_channel_disconnect_tx_t,
-    close_code: uint16_t,
+    close_code: u16,
 ) -> salty_client_disconnect_success_t {
     trace!("salty_client_disconnect");
     info!("Disconnecting with close code {}...", close_code);
@@ -1627,9 +1618,9 @@ enum EncryptDecryptMode {
 unsafe fn salty_client_encrypt_decrypt_with_session_keys(
     mode: EncryptDecryptMode,
     client: *const salty_client_t,
-    data: *const uint8_t,
+    data: *const u8,
     data_len: size_t,
-    nonce: *const uint8_t,
+    nonce: *const u8,
 ) -> salty_client_encrypt_decrypt_ret_t {
     trace!("salty_client_encrypt_decrypt_with_session_keys");
 
@@ -1694,7 +1685,7 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
     // Get pointer to bytes on heap
     let ciphertext_box = ciphertext.into_boxed_slice();
     let ciphertext_len = ciphertext_box.len();
-    let ciphertext_ptr = Box::into_raw(ciphertext_box) as *const uint8_t;
+    let ciphertext_ptr = Box::into_raw(ciphertext_box) as *const u8;
 
     salty_client_encrypt_decrypt_ret_t {
         success: salty_client_encrypt_decrypt_success_t::ENCRYPT_DECRYPT_OK,
@@ -1720,9 +1711,9 @@ unsafe fn salty_client_encrypt_decrypt_with_session_keys(
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_encrypt_with_session_keys(
     client: *const salty_client_t,
-    data: *const uint8_t,
+    data: *const u8,
     data_len: size_t,
-    nonce: *const uint8_t,
+    nonce: *const u8,
 ) -> salty_client_encrypt_decrypt_ret_t {
     trace!("salty_client_encrypt_with_session_keys");
     salty_client_encrypt_decrypt_with_session_keys(
@@ -1751,9 +1742,9 @@ pub unsafe extern "C" fn salty_client_encrypt_with_session_keys(
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_decrypt_with_session_keys(
     client: *const salty_client_t,
-    data: *const uint8_t,
+    data: *const u8,
     data_len: size_t,
-    nonce: *const uint8_t,
+    nonce: *const u8,
 ) -> salty_client_encrypt_decrypt_ret_t {
     trace!("salty_client_decrypt_with_session_keys");
     salty_client_encrypt_decrypt_with_session_keys(
@@ -1775,7 +1766,7 @@ pub unsafe extern "C" fn salty_client_decrypt_with_session_keys(
 ///         Number of bytes in the `data` array.
 #[no_mangle]
 pub unsafe extern "C" fn salty_client_encrypt_decrypt_free(
-    data: *const uint8_t,
+    data: *const u8,
     data_len: size_t,
 ) {
     trace!("salty_client_encrypt_decrypt_free");
@@ -1796,7 +1787,7 @@ mod tests {
 
     #[test]
     fn test_send_bytes_sender_null_ptr() {
-        let msg = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
+        let msg = Box::into_raw(Box::new(vec![1, 2, 3])) as *const u8;
         let result = unsafe {
             salty_client_send_task_bytes(
                 ptr::null(),
@@ -1830,7 +1821,7 @@ mod tests {
         // Create message
         // This will result in a msgpack value `Integer(1)`, the remaining two integers
         // are not part of the message anymore.
-        let msg_ptr = Box::into_raw(Box::new(vec![1, 2, 3])) as *const uint8_t;
+        let msg_ptr = Box::into_raw(Box::new(vec![1, 2, 3])) as *const u8;
 
         let result = unsafe {
             salty_client_send_task_bytes(
@@ -1853,7 +1844,7 @@ mod tests {
         let (tx, rx) = mpsc::unbounded::<MessageEvent>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
-        let timeout_ptr = Box::into_raw(Box::new(0u32)) as *const uint32_t;
+        let timeout_ptr = Box::into_raw(Box::new(0u32)) as *const u32;
 
         // Receive no data
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_ptr) };
@@ -1933,8 +1924,8 @@ mod tests {
         let (tx, rx) = mpsc::unbounded::<MessageEvent>();
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
-        let timeout_1s_ptr = Box::into_raw(Box::new(1_000u32)) as *const uint32_t;
-        let timeout_600s_ptr = Box::into_raw(Box::new(600_000u32)) as *const uint32_t;
+        let timeout_1s_ptr = Box::into_raw(Box::new(1_000u32)) as *const u32;
+        let timeout_600s_ptr = Box::into_raw(Box::new(600_000u32)) as *const u32;
 
         // Set up thread to post a message after 1.5 seconds
         let child = ::std::thread::spawn(move || {
@@ -1979,7 +1970,7 @@ mod tests {
         let rx_ptr = Box::into_raw(Box::new(rx)) as *const salty_channel_receiver_rx_t;
 
         // Wait for max 500ms, but receive no data (timeout)
-        let timeout_500ms_ptr = Box::into_raw(Box::new(500u32)) as *const uint32_t;
+        let timeout_500ms_ptr = Box::into_raw(Box::new(500u32)) as *const u32;
         let result = unsafe { salty_client_recv_msg(rx_ptr, timeout_500ms_ptr) };
         assert_eq!(result.success, salty_client_recv_success_t::RECV_NO_DATA);
 
@@ -2010,7 +2001,7 @@ mod tests {
         let event_loop = salty_event_loop_new();
         let remote = unsafe { salty_event_loop_get_remote(event_loop) };
         let zero_bytes = [0; 32];
-        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const uint8_t;
+        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const u8;
         let client_ret = unsafe { salty_relayed_data_initiator_new(keypair, remote, 0, zero_bytes_ptr, ptr::null()) };
         assert_eq!(client_ret.success, salty_relayed_data_success_t::TRUSTED_KEY_INVALID);
     }
@@ -2022,9 +2013,9 @@ mod tests {
         let event_loop = salty_event_loop_new();
         let remote = unsafe { salty_event_loop_get_remote(event_loop) };
         let nonzero_bytes = [1; 32];
-        let nonzero_bytes_ptr = Box::into_raw(Box::new(nonzero_bytes)) as *const uint8_t;
+        let nonzero_bytes_ptr = Box::into_raw(Box::new(nonzero_bytes)) as *const u8;
         let zero_bytes = [0; 32];
-        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const uint8_t;
+        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const u8;
         let client_ret = unsafe { salty_relayed_data_responder_new(keypair, remote, 0, zero_bytes_ptr, nonzero_bytes_ptr, ptr::null()) };
         assert_eq!(client_ret.success, salty_relayed_data_success_t::PUBKEY_INVALID);
     }
@@ -2036,9 +2027,9 @@ mod tests {
         let event_loop = salty_event_loop_new();
         let remote = unsafe { salty_event_loop_get_remote(event_loop) };
         let nonzero_bytes = [1; 32];
-        let nonzero_bytes_ptr = Box::into_raw(Box::new(nonzero_bytes)) as *const uint8_t;
+        let nonzero_bytes_ptr = Box::into_raw(Box::new(nonzero_bytes)) as *const u8;
         let zero_bytes = [0; 32];
-        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const uint8_t;
+        let zero_bytes_ptr = Box::into_raw(Box::new(zero_bytes)) as *const u8;
         let client_ret = unsafe { salty_relayed_data_responder_new(keypair, remote, 0, nonzero_bytes_ptr, zero_bytes_ptr, ptr::null()) };
         assert_eq!(client_ret.success, salty_relayed_data_success_t::AUTH_TOKEN_INVALID);
     }

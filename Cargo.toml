@@ -6,14 +6,14 @@ authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
 [dependencies]
 clippy = { version = "*", optional = true }
 failure = "0.1"
-log = "0.3"
-saltyrtc-client = "0.6"
+log = "0.4"
+saltyrtc-client = { git = "https://github.com/saltyrtc/saltyrtc-client-rs", branch = "master" }
 tokio-core = "0.1"
 
 [dev-dependencies]
 byteorder = "1.2"
 data-encoding = "2.1"
-env_logger = "0.5"
+env_logger = "0.7"
 tokio-timer = "0.1"
 clap = "2.30"
 qrcodegen = "1.2"

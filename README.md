@@ -1,7 +1,6 @@
 # SaltyRTC Relayed Data Task
 
 [![CircleCI][circle-ci-badge]][circle-ci]
-[![Rust][rust-badge]][github]
 [![Join our chat on Gitter](https://badges.gitter.im/saltyrtc/Lobby.svg)](https://gitter.im/saltyrtc/Lobby)
 
 
@@ -70,5 +69,3 @@ be dual licensed as above, without any additional terms or conditions.
 <!-- Badges -->
 [circle-ci]: https://circleci.com/gh/saltyrtc/saltyrtc-task-relayed-data-rs/tree/master
 [circle-ci-badge]: https://circleci.com/gh/saltyrtc/saltyrtc-task-relayed-data-rs/tree/master.svg?style=shield
-[github]: https://github.com/saltyrtc/saltyrtc-task-relayed-data-rs
-[rust-badge]: https://img.shields.io/badge/rust-1.26%2B-blue.svg?maxAge=3600
