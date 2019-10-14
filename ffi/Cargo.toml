@@ -8,7 +8,7 @@ name = "saltyrtc_task_relayed_data_ffi"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-lazy_static = "1.0"
+lazy_static = "1"
 libc = "0.2"
 log = "0.4"
 log4rs = "0.8"
@@ -19,7 +19,7 @@ tokio-core = "0.1"
 tokio-timer = "0.1"
 
 [build-dependencies]
-cbindgen = "0.6"
+cbindgen = "0.9"
 
 [dev-dependencies]
 lazy_static = "1.0"
