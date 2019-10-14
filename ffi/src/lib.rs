@@ -946,28 +946,19 @@ pub unsafe extern "C" fn salty_client_init(
     };
 
     // Create TlsConnector
-    macro_rules! unwrap_or_tls_error {
-        ($obj:expr, $errmsg:expr) => {{
-            match $obj {
-                Ok(val) => val,
-                Err(e) => {
-                    error!($errmsg, e);
-                    return make_init_ret_error(salty_client_init_success_t::INIT_TLS_ERROR);
-                }
-            }
-        }}
-    }
-    let supported_protocols = [Protocol::Tlsv12, Protocol::Tlsv11, Protocol::Tlsv10];
-    let mut tls_builder = unwrap_or_tls_error!(TlsConnector::builder(),
-        "Could not create TlsConnectorBuilder: {}");
-    unwrap_or_tls_error!(tls_builder.supported_protocols(&supported_protocols),
-        "Could not set supported TLS protocols: {}");
+    let mut tls_builder = TlsConnector::builder();
+    tls_builder.min_protocol_version(Some(Protocol::Tlsv10));
     if let Some(cert) = ca_cert_opt {
-        unwrap_or_tls_error!(tls_builder.add_root_certificate(cert),
-            "Could not add CA certificate to TlsConnectorBuilder: {}");
+        tls_builder.add_root_certificate(cert);
     }
-    let tls_connector = unwrap_or_tls_error!(tls_builder.build(),
-        "Could not create TlsConnector: {}");
+    let tls_connector = match tls_builder.build() {
+        Ok(val) => val,
+        Err(e) => {
+            error!("Could not create TlsConnector: {}", e);
+            return make_init_ret_error(salty_client_init_success_t::INIT_TLS_ERROR);
+        }
+    };
+
 
     // Create connect future
     let (connect_future, event_channel) = match saltyrtc_client::connect(

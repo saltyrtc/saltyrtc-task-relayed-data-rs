@@ -160,11 +160,9 @@ fn main() {
     let mut core = Core::new().unwrap();
 
     // Create TLS connector instance
-    let mut tls_builder = TlsConnector::builder()
-        .unwrap_or_else(|e| panic!("Could not initialize TlsConnector builder: {}", e));
-    tls_builder.supported_protocols(&[Protocol::Tlsv12, Protocol::Tlsv11, Protocol::Tlsv10])
-        .unwrap_or_else(|e| panic!("Could not set TLS protocols: {}", e));
-    let tls_connector = tls_builder.build()
+    let tls_connector = TlsConnector::builder()
+        .min_protocol_version(Some(Protocol::Tlsv11))
+        .build()
         .unwrap_or_else(|e| panic!("Could not initialize TlsConnector: {}", e));
 
     // Create new public permanent keypair
@@ -271,7 +269,7 @@ fn main() {
         // Get reference to task and downcast it to `RelayedDataTask`.
         // We can be sure that it's a `RelayedDataTask` since that's the only one we proposed.
         let mut t = task.lock().expect("Could not lock task mutex");
-        let rd_task: &mut RelayedDataTask = (&mut **t as &mut Task)
+        let rd_task: &mut RelayedDataTask = (&mut **t as &mut dyn Task)
             .downcast_mut::<RelayedDataTask>()
             .expect("Chosen task is not a RelayedDataTask");
 
