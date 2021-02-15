@@ -31,25 +31,21 @@ use constants::*;
 // *** TYPES *** //
 
 /// A key pair.
-#[no_mangle]
 pub enum salty_keypair_t {}
 
 /// An event loop instance.
 ///
 /// The event loop is not thread safe.
-#[no_mangle]
 pub enum salty_event_loop_t {}
 
 /// A remote handle to an event loop instance.
 ///
 /// This type is thread safe.
-#[no_mangle]
 pub enum salty_remote_t {}
 
 /// A SaltyRTC client instance.
 ///
 /// Internally, this is a `Rc<RefCell<SaltyClient>>`.
-#[no_mangle]
 pub enum salty_client_t {}
 
 

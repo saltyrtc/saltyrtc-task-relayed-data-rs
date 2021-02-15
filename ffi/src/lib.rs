@@ -69,7 +69,6 @@ pub use constants::*;
 ///
 /// If no error happened, the value should be `OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_relayed_data_success_t {
     /// No error.
@@ -100,7 +99,6 @@ pub enum salty_relayed_data_success_t {
 /// the `success` field for errors. If the creation of the client
 /// was not successful, then the other pointers will be null.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_relayed_data_client_ret_t {
     pub success: salty_relayed_data_success_t,
     pub client: *const salty_client_t,
@@ -114,31 +112,26 @@ pub struct salty_relayed_data_client_ret_t {
 /// The channel for receiving incoming messages.
 ///
 /// On the Rust side, this is an `mpsc::UnboundedReceiver<MessageEvent>`.
-#[no_mangle]
 pub enum salty_channel_receiver_rx_t {}
 
 /// The channel for sending outgoing messages (sending end).
 ///
 /// On the Rust side, this is an `mpsc::UnboundedSender<OutgoingMessage>`.
-#[no_mangle]
 pub enum salty_channel_sender_tx_t {}
 
 /// The channel for sending outgoing messages (receiving end).
 ///
 /// On the Rust side, this is an `mpsc::UnboundedReceiver<OutgoingMessage>`.
-#[no_mangle]
 pub enum salty_channel_sender_rx_t {}
 
 /// The oneshot channel for closing the connection (sending end).
 ///
 /// On the Rust side, this is an `oneshot::Sender<CloseCode>`.
-#[no_mangle]
 pub enum salty_channel_disconnect_tx_t {}
 
 /// The oneshot channel for closing the connection (receiving end).
 ///
 /// On the Rust side, this is an `oneshot::Receiver<CloseCode>`.
-#[no_mangle]
 pub enum salty_channel_disconnect_rx_t {}
 
 
@@ -147,7 +140,6 @@ pub enum salty_channel_disconnect_rx_t {}
 /// Note: Before accessing `connect_future`, make sure to check the `success`
 /// field for errors. If an error occurred, the other fields will be `null`.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_client_init_ret_t {
     pub success: salty_client_init_success_t,
     pub handshake_future: *const salty_handshake_future_t,
@@ -161,26 +153,22 @@ pub struct salty_client_init_ret_t {
 /// On the Rust side, this is a `Box<Box<Future<Item=WsClient, Error=SaltyError>>>`.
 /// The double box is used because the inner box is actually a trait object fat
 /// pointer, pointing to both the data and the vtable.
-#[no_mangle]
 pub enum salty_handshake_future_t {}
 
 /// An event channel (sending end).
 ///
 /// On the Rust side, this is an `UnboundedSender<Event>`.
-#[no_mangle]
 pub enum salty_channel_event_tx_t {}
 
 /// An event channel (receiving end).
 ///
 /// On the Rust side, this is an `UnboundedReceiver<Event>`.
-#[no_mangle]
 pub enum salty_channel_event_rx_t {}
 
 /// Result type with all potential init error codes.
 ///
 /// If no error happened, the value should be `INIT_OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_init_success_t {
     /// No error.
@@ -206,7 +194,6 @@ pub enum salty_client_init_success_t {
 ///
 /// If no error happened, the value should be `CONNECT_OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_connect_success_t {
     /// No error.
@@ -232,7 +219,6 @@ pub enum salty_client_connect_success_t {
 ///
 /// If no error happened, the value should be `DISCONNECT_OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_disconnect_success_t {
     /// No error.
@@ -249,7 +235,6 @@ pub enum salty_client_disconnect_success_t {
 ///
 /// If no error happened, the value should be `SEND_OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_send_success_t {
     /// No error.
@@ -267,7 +252,6 @@ pub enum salty_client_send_success_t {
 
 /// Possible message types.
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_msg_type_t {
     /// Incoming task message
@@ -288,7 +272,6 @@ pub enum salty_msg_type_t {
 /// If the event type is `MSG_CLOSE`, then the `close_code` field will
 /// contain the close code. Otherwise, the field is `0`.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_msg_t {
     msg_type: salty_msg_type_t,
     msg_bytes: *const u8,
@@ -298,7 +281,6 @@ pub struct salty_msg_t {
 
 /// Possible event types.
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_event_type_t {
     /// A connection is being established.
@@ -324,7 +306,6 @@ pub enum salty_event_type_t {
 /// If the event type is `EVENT_PEER_DISCONNECTED`, then the `peer_id` field
 /// will contain the peer id. Otherwise, the field is `0`.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_event_t {
     event_type: salty_event_type_t,
     peer_connected: bool,
@@ -335,7 +316,6 @@ pub struct salty_event_t {
 ///
 /// If no error happened, the value should be `RECV_OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_recv_success_t {
     /// No error.
@@ -359,7 +339,6 @@ pub enum salty_client_recv_success_t {
 /// Note: Before accessing `msg`, make sure to check the `success` field
 /// for errors. If an error occurred, the `msg` field will be `null`.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_client_recv_msg_ret_t {
     pub success: salty_client_recv_success_t,
     pub msg: *const salty_msg_t,
@@ -370,7 +349,6 @@ pub struct salty_client_recv_msg_ret_t {
 /// Note: Before accessing `event`, make sure to check the `success` field
 /// for errors. If an error occurred, the `event` field will be `null`.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_client_recv_event_ret_t {
     pub success: salty_client_recv_success_t,
     pub event: *const salty_event_t,
@@ -381,7 +359,6 @@ pub struct salty_client_recv_event_ret_t {
 /// Note: Before accessing `bytes`, make sure to check the `success` field for
 /// errors. If an error occurred, the other fields will be `null`.
 #[repr(C)]
-#[no_mangle]
 pub struct salty_client_encrypt_decrypt_ret_t {
     success: salty_client_encrypt_decrypt_success_t,
     bytes: *const u8,
@@ -392,7 +369,6 @@ pub struct salty_client_encrypt_decrypt_ret_t {
 ///
 /// If no error happened, the value should be `ENCRYPT_DECRYPT_OK` (0).
 #[repr(u8)]
-#[no_mangle]
 #[derive(Debug, PartialEq, Eq)]
 pub enum salty_client_encrypt_decrypt_success_t {
     /// No error.
