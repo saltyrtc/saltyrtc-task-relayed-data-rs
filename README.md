@@ -18,17 +18,6 @@ To run the testsuite:
 
     cargo test
 
-### Linting
-
-To run clippy lints, compile the library with `--features clippy` on a nightly
-compiler:
-
-    $ cargo build --features clippy
-
-If `nightly` is not your default compiler:
-
-    $ rustup run nightly cargo build --features clippy
-
 
 ## Msgpack Debugging
 
