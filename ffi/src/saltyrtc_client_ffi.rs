@@ -86,17 +86,17 @@ fn make_log_config(level: LevelFilter) -> Result<Config, String> {
 ///     A boolean indicating whether logging was setup successfully.
 ///     If setting up the logger failed, an error message will be written to stdout.
 #[no_mangle]
-pub extern "C" fn salty_log_init(level: u8) -> bool {
+pub extern "C" fn salty_log_init_console(level: u8) -> bool {
     // Get access to static log handle
     let mut handle_opt = match LOG_HANDLE.lock() {
         Ok(handle_opt) => handle_opt,
         Err(e) => {
-            eprintln!("salty_log_init: Could not get access to static logger mutex: {}", e);
+            eprintln!("salty_log_init_console: Could not get access to static logger mutex: {}", e);
             return false;
         }
     };
     if handle_opt.is_some() {
-        eprintln!("salty_log_init: A logger is already initialized");
+        eprintln!("salty_log_init_console: A logger is already initialized");
         return false;
     }
 
@@ -109,7 +109,7 @@ pub extern "C" fn salty_log_init(level: u8) -> bool {
         LEVEL_ERROR => LevelFilter::Error,
         LEVEL_OFF => LevelFilter::Off,
         _ => {
-            eprintln!("salty_log_init: Invalid log level: {}", level);
+            eprintln!("salty_log_init_console: Invalid log level: {}", level);
             return false;
         }
     };
@@ -118,7 +118,7 @@ pub extern "C" fn salty_log_init(level: u8) -> bool {
     let config = match make_log_config(level_filter) {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("salty_log_init: {}", e);
+            eprintln!("salty_log_init_console: {}", e);
             return false;
         }
     };
@@ -127,7 +127,7 @@ pub extern "C" fn salty_log_init(level: u8) -> bool {
     let handle = match init_config(config) {
         Ok(handle) => handle,
         Err(e) => {
-            eprintln!("salty_log_init: Could not initialize logger: {}", e);
+            eprintln!("salty_log_init_console: Could not initialize logger: {}", e);
             return false;
         }
     };

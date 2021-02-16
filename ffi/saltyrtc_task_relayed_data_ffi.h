@@ -803,7 +803,7 @@ bool salty_log_change_level(uint8_t level);
  *     A boolean indicating whether logging was setup successfully.
  *     If setting up the logger failed, an error message will be written to stdout.
  */
-bool salty_log_init(uint8_t level);
+bool salty_log_init_console(uint8_t level);
 
 /**
  * Get a pointer to the auth token bytes from a `salty_client_t` instance.

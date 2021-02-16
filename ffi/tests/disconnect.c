@@ -128,8 +128,8 @@ void *connect_initiator(void *threadarg) {
     }
     if (fclose(fd) != 0) { printf("Warning: Closing ca cert file descriptor failed"); }
 
-    printf("  Initializing logger (level WARN)\n");
-    if (!salty_log_init(LEVEL_WARN)) {
+    printf("  Initializing console logger (level WARN)\n");
+    if (!salty_log_init_console(LEVEL_WARN)) {
         pthread_exit((void *)1);
     }
 
