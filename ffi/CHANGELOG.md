@@ -14,5 +14,6 @@ Possible log types:
 
 ### v0.2.0 (Unreleased)
 
+- [added] FFI: A new `salty_log_init_callback` function was added
 - [changed] FFI: The `salty_log_init` function was renamed to `salty_log_init_console`
 - [changed] FFI: The `salty_log_change_level` function was renamed to `salty_log_change_level_console`

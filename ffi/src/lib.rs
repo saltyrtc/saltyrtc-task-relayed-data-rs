@@ -19,6 +19,7 @@
 //! - Terminate the connection
 #![allow(non_camel_case_types)]
 
+extern crate anyhow;
 #[macro_use] extern crate lazy_static;
 extern crate libc;
 #[macro_use] extern crate log;
@@ -1535,12 +1536,7 @@ pub unsafe extern "C" fn salty_client_recv_event_ret_free(recv_ret: salty_client
 
 /// Close the connection.
 ///
-/// Depending on whether this succeeds or not, the `disconnect_tx` instance is
-/// freed or not:
-///
-/// - DISCONNECT_OK: The `disconnect_tx` instance was freed
-/// - DISCONNECT_NULL_ARGUMENT: The `disconnect_tx` instance was not freed
-/// - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
+/// The `disconnect_tx` instance is freed (as long as the pointer is not null).
 ///
 /// Parameters:
 ///     disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):

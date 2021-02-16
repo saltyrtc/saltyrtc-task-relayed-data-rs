@@ -8,6 +8,7 @@ name = "saltyrtc_task_relayed_data_ffi"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
+anyhow = "1"  # Required by log4rs
 lazy_static = "1"
 libc = "0.2"
 log = "0.4"

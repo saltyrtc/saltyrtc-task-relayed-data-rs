@@ -1247,6 +1247,7 @@ dependencies = [
 name = "saltyrtc-task-relayed-data-ffi"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cbindgen",
  "lazy_static",
  "libc",
