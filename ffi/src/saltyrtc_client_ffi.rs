@@ -139,7 +139,7 @@ pub extern "C" fn salty_log_init_console(level: u8) -> bool {
     true
 }
 
-/// Change the log level of the logger.
+/// Change the log level of the console logger.
 ///
 /// Parameters:
 ///     level (uint8_t, copied):
@@ -149,7 +149,7 @@ pub extern "C" fn salty_log_init_console(level: u8) -> bool {
 ///     A boolean indicating whether logging was updated successfully.
 ///     If updating the logger failed, an error message will be written to stdout.
 #[no_mangle]
-pub extern "C" fn salty_log_change_level(level: u8) -> bool {
+pub extern "C" fn salty_log_change_level_console(level: u8) -> bool {
     // Log level
     let level_filter = match level {
         LEVEL_TRACE => LevelFilter::Trace,
@@ -159,7 +159,7 @@ pub extern "C" fn salty_log_change_level(level: u8) -> bool {
         LEVEL_ERROR => LevelFilter::Error,
         LEVEL_OFF => LevelFilter::Off,
         _ => {
-            eprintln!("salty_log_change_level: Invalid log level: {}", level);
+            eprintln!("salty_log_change_level_console: Invalid log level: {}", level);
             return false;
         }
     };
@@ -168,12 +168,12 @@ pub extern "C" fn salty_log_change_level(level: u8) -> bool {
     let mut handle_opt = match LOG_HANDLE.lock() {
         Ok(opt_handle) => opt_handle,
         Err(e) => {
-            eprintln!("salty_log_change_level: Could not get access to static logger mutex: {}", e);
+            eprintln!("salty_log_change_level_console: Could not get access to static logger mutex: {}", e);
             return false;
         }
     };
     if handle_opt.is_none() {
-        eprintln!("salty_log_change_level: Logger is not initialized");
+        eprintln!("salty_log_change_level_console: Logger is not initialized");
         return false;
     }
 
@@ -181,7 +181,7 @@ pub extern "C" fn salty_log_change_level(level: u8) -> bool {
     let config = match make_log_config(level_filter) {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("salty_log_change_level: {}", e);
+            eprintln!("salty_log_change_level_console: {}", e);
             return false;
         }
     };

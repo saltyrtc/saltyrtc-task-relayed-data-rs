@@ -780,7 +780,7 @@ const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
 const salty_keypair_t *salty_keypair_restore(const uint8_t *ptr);
 
 /**
- * Change the log level of the logger.
+ * Change the log level of the console logger.
  *
  * Parameters:
  *     level (uint8_t, copied):
@@ -790,7 +790,7 @@ const salty_keypair_t *salty_keypair_restore(const uint8_t *ptr);
  *     A boolean indicating whether logging was updated successfully.
  *     If updating the logger failed, an error message will be written to stdout.
  */
-bool salty_log_change_level(uint8_t level);
+bool salty_log_change_level_console(uint8_t level);
 
 /**
  * Initialize logging to stdout with log messages up to the specified log level.

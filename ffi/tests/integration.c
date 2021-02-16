@@ -357,7 +357,7 @@ int main() {
         return EXIT_FAILURE;
     }
     printf("  Updating logger (level WARN)\n");
-    if (!salty_log_change_level(LEVEL_WARN)) {
+    if (!salty_log_change_level_console(LEVEL_WARN)) {
         return EXIT_FAILURE;
     }
 
