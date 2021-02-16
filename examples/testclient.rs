@@ -245,6 +245,7 @@ fn main() {
     match role {
         Role::Initiator => {
             println!("Pubkey: {}", HEXLOWER.encode(&pubkey.0));
+            println!("Auth token: {}", HEXLOWER.encode(&client.read().unwrap().auth_token().unwrap().secret_key_bytes()));
             println!();
             println!("QR Code:");
             print_qrcode(&payload);
