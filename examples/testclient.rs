@@ -87,7 +87,7 @@ fn main() {
         .takes_value(true)
         .value_name("SRV_PORT")
         .required(true)
-        .default_value("9287")
+        .default_value("443")
         .help("The SaltyRTC server port");
     let arg_srv_pubkey = Arg::with_name(ARG_SRV_PUBKEY)
         .short("s")
