@@ -26,5 +26,9 @@ cbindgen = "0.9"
 lazy_static = "1.0"
 tokio-process = "0.1"
 
+[patch.crates-io]
+rust_sodium-sys = { git = "https://github.com/dbrgn/rust_sodium" }
+rust_sodium = { git = "https://github.com/dbrgn/rust_sodium" }
+
 [profile.release]
 lto = true
