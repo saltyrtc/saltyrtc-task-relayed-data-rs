@@ -1,6 +1,6 @@
 [package]
 name = "saltyrtc-task-relayed-data-ffi"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
 
 [lib]

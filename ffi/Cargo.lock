@@ -1152,8 +1152,7 @@ dependencies = [
 [[package]]
 name = "rust_sodium"
 version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c1d4c517ad3d421a390cad0afa1108a507be2b86ea1f11afb12809e57a2f0c9"
+source = "git+https://github.com/dbrgn/rust_sodium#b083bfdab28e0fc48e5a3ca90a0a5bedfe99af0b"
 dependencies = [
  "libc",
  "rand 0.4.6",
@@ -1165,8 +1164,7 @@ dependencies = [
 [[package]]
 name = "rust_sodium-sys"
 version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed3b72937549b078804565bef0276087cb9a5bc6e63677553188d85dd0c735d8"
+source = "git+https://github.com/dbrgn/rust_sodium#b083bfdab28e0fc48e5a3ca90a0a5bedfe99af0b"
 dependencies = [
  "cc",
  "flate2",
@@ -1245,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "saltyrtc-task-relayed-data-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cbindgen",
