@@ -5,7 +5,21 @@ To build the crate, simply run `cargo build` or `cargo build --release`.
 If you want to skip the generation of the C headers, set the env variable
 `SKIP_CBINDGEN=1` before building.
 
-To build for iOS, install `cargo-lipo`, then run
+### iOS
+
+To build for iOS, install `cargo-lipo`:
+
+    $ cargo install -f cargo-lipo
+    $ # 64 bit targets (real device & simulator):
+    $ rustup target add aarch64-apple-ios x86_64-apple-ios
+    $ # 32 bit targets
+    $ rustup target add armv7-apple-ios i386-apple-ios
+
+Add an override if you need to support 32 bit targets:
+
+    $ rustup override add 1.41.1
+
+Then run
 
     $ cargo lipo --release
 
