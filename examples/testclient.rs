@@ -87,7 +87,7 @@ fn main() {
         .takes_value(true)
         .value_name("SRV_PORT")
         .required(true)
-        .default_value("9287")
+        .default_value("443")
         .help("The SaltyRTC server port");
     let arg_srv_pubkey = Arg::with_name(ARG_SRV_PUBKEY)
         .short("s")
@@ -245,6 +245,7 @@ fn main() {
     match role {
         Role::Initiator => {
             println!("Pubkey: {}", HEXLOWER.encode(&pubkey.0));
+            println!("Auth token: {}", HEXLOWER.encode(&client.read().unwrap().auth_token().unwrap().secret_key_bytes()));
             println!();
             println!("QR Code:");
             print_qrcode(&payload);

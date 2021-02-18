@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../saltyrtc_task_relayed_data_ffi.h"
 
@@ -306,9 +307,41 @@ void *connect_responder(void *threadarg) {
 }
 
 /**
+ * Logger callback function.
+ */
+static void log_callback(uint8_t level, const char *target, const char *message) {
+    printf("****** [%d] %s: %s\n", level, target, message);
+}
+
+/**
  * Main program.
  */
-int main() {
+int main(int argc, char *argv[]) {
+    // Parse arguments
+    int opt;
+    enum { LOGGER_CONSOLE, LOGGER_CALLBACK } logger = LOGGER_CONSOLE;
+    while ((opt = getopt(argc, argv, "l:")) != -1) {
+        switch (opt) {
+            case 'l':
+                if (strcmp(optarg, "console") == 0) {
+                    logger = LOGGER_CONSOLE;
+                    break;
+                }
+                if (strcmp(optarg, "callback") == 0) {
+                    logger = LOGGER_CALLBACK;
+                    break;
+                }
+                fprintf(stderr, "Invalid logger mode: %s\n", optarg);
+                return EXIT_FAILURE;
+            default:
+                fprintf(stderr, "Usage: %s [-l LOGGER_MODE]\n\n", argv[0]);
+                fprintf(stderr, "Note: The logger mode may be either 'console' or 'callback'.\n");
+                fprintf(stderr, "      The default value is 'console'.\n");
+                return EXIT_FAILURE;
+        }
+    }
+    printf("Logger: %d\n", logger);
+
     printf("START C TEST\n");
 
     printf("  Reading DER formatted test CA certificate\n");
@@ -352,13 +385,20 @@ int main() {
     }
     if (fclose(fd) != 0) printf("Warning: Closing ca cert file descriptor failed");
 
-    printf("  Initializing logger (level DEBUG)\n");
-    if (!salty_log_init(LEVEL_DEBUG)) {
-        return EXIT_FAILURE;
-    }
-    printf("  Updating logger (level WARN)\n");
-    if (!salty_log_change_level(LEVEL_WARN)) {
-        return EXIT_FAILURE;
+    if (logger == LOGGER_CONSOLE) {
+        printf("  Initializing console logger (level DEBUG)\n");
+        if (!salty_log_init_console(LEVEL_DEBUG)) {
+            return EXIT_FAILURE;
+        }
+        printf("  Updating logger (level WARN)\n");
+        if (!salty_log_change_level_console(LEVEL_WARN)) {
+            return EXIT_FAILURE;
+        }
+    } else if (logger == LOGGER_CALLBACK) {
+        printf("  Initializing callback logger (level DEBUG)\n");
+        if (!salty_log_init_callback(log_callback, LEVEL_DEBUG)) {
+            return EXIT_FAILURE;
+        }
     }
 
     printf("  Creating key pairs\n");

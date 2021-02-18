@@ -60,7 +60,7 @@ fn build_tests() -> (MutexGuard<'static, ()>, PathBuf) {
     (guard, build_dir)
 }
 
-fn c_tests_run(bin: &str) {
+fn c_tests_run(bin: &str, logger: Option<&str>) {
     let (_guard, build_dir) = build_tests();
 
     // Event loop
@@ -70,7 +70,11 @@ fn c_tests_run(bin: &str) {
     let timer = Timer::default();
 
     // Create a command future
-    let c_tests = Command::new(bin)
+    let mut cmd = Command::new(bin);
+    if let Some(l) = logger {
+        cmd.arg("-l").arg(l);
+    }
+    let c_tests = cmd
         .current_dir(&build_dir)
         .output_async(&core.handle());
 
@@ -92,18 +96,25 @@ fn c_tests_run(bin: &str) {
 }
 
 #[test]
-fn c_tests_integration_run() {
-    c_tests_run("./integration");
+fn c_tests_integration_run_console_logger() {
+    c_tests_run("./integration", Some("console"));
+}
+
+#[test]
+fn c_tests_integration_run_callback_logger() {
+    c_tests_run("./integration", Some("callback"));
 }
 
 #[test]
 fn c_tests_disconnect_run() {
-    c_tests_run("./disconnect");
+    c_tests_run("./disconnect", None);
 }
 
 // #[test] Disabled for now due to false errors, see
 // https://bugs.kde.org/show_bug.cgi?id=381289 and
 // https://bugzilla.redhat.com/show_bug.cgi?id=1462258
+// Additionally, the log4rs logger initializes global memory that cannot
+// currently be freed.
 fn c_tests_no_memory_leaks() {
     let (_guard, build_dir) = build_tests();
 

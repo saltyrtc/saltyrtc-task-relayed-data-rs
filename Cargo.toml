@@ -22,3 +22,7 @@ qrcodegen = "1.2"
 
 [features]
 msgpack-debugging = ["saltyrtc-client/msgpack-debugging"]
+
+[patch.crates-io]
+rust_sodium-sys = { git = "https://github.com/dbrgn/rust_sodium" }
+rust_sodium = { git = "https://github.com/dbrgn/rust_sodium" }

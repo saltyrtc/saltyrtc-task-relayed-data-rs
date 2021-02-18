@@ -433,6 +433,8 @@ typedef struct {
   const salty_msg_t *msg;
 } salty_client_recv_msg_ret_t;
 
+typedef void (*LogFunction)(uint8_t level, const char *target, const char *message);
+
 /**
  * The return value when creating a new client instance.
  *
@@ -540,12 +542,7 @@ salty_client_encrypt_decrypt_ret_t salty_client_decrypt_with_session_keys(const 
 /**
  * Close the connection.
  *
- * Depending on whether this succeeds or not, the `disconnect_tx` instance is
- * freed or not:
- *
- * - DISCONNECT_OK: The `disconnect_tx` instance was freed
- * - DISCONNECT_NULL_ARGUMENT: The `disconnect_tx` instance was not freed
- * - DISCONNECT_ERROR: The `disconnect_tx` instance was freed
+ * The `disconnect_tx` instance is freed (as long as the pointer is not null).
  *
  * Parameters:
  *     disconnect_tx (`*salty_channel_disconnect_tx_t`, borrowed or moved):
@@ -780,7 +777,7 @@ const uint8_t *salty_keypair_public_key(const salty_keypair_t *ptr);
 const salty_keypair_t *salty_keypair_restore(const uint8_t *ptr);
 
 /**
- * Change the log level of the logger.
+ * Change the log level of the console logger.
  *
  * Parameters:
  *     level (uint8_t, copied):
@@ -790,7 +787,24 @@ const salty_keypair_t *salty_keypair_restore(const uint8_t *ptr);
  *     A boolean indicating whether logging was updated successfully.
  *     If updating the logger failed, an error message will be written to stdout.
  */
-bool salty_log_change_level(uint8_t level);
+bool salty_log_change_level_console(uint8_t level);
+
+/**
+ * Initialize logging with a custom callback function that will be called for every log.
+ *
+ * Parameters:
+ *     callback:
+ *         Pointer to a function with the signature
+ *         `(uint8_t level, char* target, char* message)`.
+ *     level (uint8_t, copied):
+ *         The log level, must be in the range 0 (TRACE) to 5 (OFF).
+ *         See `LEVEL_*` constants for reference.
+ * Returns:
+ *     A boolean indicating whether logging was setup successfully.
+ *     If setting up the logger failed, an error message will be written to stdout.
+ */
+bool salty_log_init_callback(LogFunction callback,
+                             uint8_t level);
 
 /**
  * Initialize logging to stdout with log messages up to the specified log level.
@@ -803,7 +817,7 @@ bool salty_log_change_level(uint8_t level);
  *     A boolean indicating whether logging was setup successfully.
  *     If setting up the logger failed, an error message will be written to stdout.
  */
-bool salty_log_init(uint8_t level);
+bool salty_log_init_console(uint8_t level);
 
 /**
  * Get a pointer to the auth token bytes from a `salty_client_t` instance.

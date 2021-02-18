@@ -8,10 +8,11 @@ name = "saltyrtc_task_relayed_data_ffi"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
+anyhow = "1"  # Required by log4rs
 lazy_static = "1"
 libc = "0.2"
 log = "0.4"
-log4rs = "0.8"
+log4rs = "1"
 rmp-serde = "0.13"
 saltyrtc-client = "0.7"
 saltyrtc-task-relayed-data = { path = ".." }
@@ -24,6 +25,10 @@ cbindgen = "0.9"
 [dev-dependencies]
 lazy_static = "1.0"
 tokio-process = "0.1"
+
+[patch.crates-io]
+rust_sodium-sys = { git = "https://github.com/dbrgn/rust_sodium" }
+rust_sodium = { git = "https://github.com/dbrgn/rust_sodium" }
 
 [profile.release]
 lto = true
