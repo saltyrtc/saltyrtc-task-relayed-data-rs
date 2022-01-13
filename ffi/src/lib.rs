@@ -35,6 +35,7 @@ mod constants;
 mod nonblocking;
 pub mod saltyrtc_client_ffi;
 
+use std::convert::TryInto;
 use std::ffi::CStr;
 use std::io::{BufReader, Read};
 use std::mem;
@@ -457,17 +458,12 @@ unsafe fn create_client_builder(
     if server_public_permanent_key.is_null() {
         warn!("Not supplying server public permanent key");
     } else {
-        let pubkey_slice: &[u8] = slice::from_raw_parts(server_public_permanent_key, 32);
+        let pubkey_bytes: [u8; 32] = slice::from_raw_parts(server_public_permanent_key, 32)
+            .try_into()
+            .expect("Could not convert public key slice to array");
         debug!("Supplying server public permanent key");
-        trace!("Expecting server public permanent key to match {:?}", pubkey_slice);
-        let pubkey = match PublicKey::from_slice(pubkey_slice) {
-            Some(key) => key,
-            None => {
-                error!("Could not parse server public permanent key bytes");
-                return Err(salty_relayed_data_success_t::SERVER_KEY_INVALID);
-            }
-        };
-        builder = builder.with_server_key(pubkey);
+        trace!("Expecting server public permanent key to match {:?}", pubkey_bytes);
+        builder = builder.with_server_key(PublicKey::from(pubkey_bytes));
     }
 
     Ok(ClientBuilderRet {
@@ -521,23 +517,19 @@ pub unsafe extern "C" fn salty_relayed_data_initiator_new(
     let trusted_key_opt = if trusted_responder_key.is_null() {
         None
     } else {
-        // Get slice
-        let trusted_key_slice: &[u8] = slice::from_raw_parts(trusted_responder_key, 32);
+        // Get bytes
+        let trusted_key_bytes: [u8; 32] = slice::from_raw_parts(trusted_responder_key, 32)
+            .try_into()
+            .expect("Could not convert trusted key slice to array");
 
         // Just to rule out stupid mistakes, make sure that the public key is not all-zero
-        if trusted_key_slice.iter().all(|&x| x == 0) {
+        if trusted_key_bytes.iter().all(|&x| x == 0) {
             error!("Trusted key bytes are all zero!");
             return make_client_create_error(salty_relayed_data_success_t::TRUSTED_KEY_INVALID);
         }
 
         // Parse
-        match PublicKey::from_slice(trusted_key_slice) {
-            Some(key) => Some(key),
-            None => {
-                error!("Could not parse trusted key bytes");
-                return make_client_create_error(salty_relayed_data_success_t::TRUSTED_KEY_INVALID);
-            }
-        }
+        Some(PublicKey::from(trusted_key_bytes))
     };
 
     // Create client instance
@@ -606,22 +598,18 @@ pub unsafe extern "C" fn salty_relayed_data_responder_new(
         error!("Initiator public key is a null pointer");
         return make_client_create_error(salty_relayed_data_success_t::NULL_ARGUMENT);
     }
-    let pubkey_slice: &[u8] = slice::from_raw_parts(initiator_pubkey, 32);
+    let pubkey_bytes: [u8; 32] = slice::from_raw_parts(initiator_pubkey, 32)
+        .try_into()
+        .expect("Could not convert public key slice to array");
 
     // Just to rule out stupid mistakes, make sure that the public key is not all-zero
-    if pubkey_slice.iter().all(|&x| x == 0) {
+    if pubkey_bytes.iter().all(|&x| x == 0) {
         error!("Public key bytes are all zero!");
         return make_client_create_error(salty_relayed_data_success_t::PUBKEY_INVALID);
     }
 
     // Parse public key
-    let pubkey = match PublicKey::from_slice(pubkey_slice) {
-        Some(pubkey) => pubkey,
-        None => {
-            error!("Public key bytes could not be parsed");
-            return make_client_create_error(salty_relayed_data_success_t::PUBKEY_INVALID);
-        }
-    };
+    let pubkey = PublicKey::from(pubkey_bytes);
 
     // Parse auth token
     let auth_token_opt = if auth_token.is_null() {

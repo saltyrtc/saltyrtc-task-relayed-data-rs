@@ -234,7 +234,7 @@ fn main() {
         false,
         &server_host,
         server_port,
-        &pubkey.0,
+        pubkey.as_bytes(),
         client.read().unwrap().auth_token().unwrap().secret_key_bytes(),
         &server_pubkey,
     );
@@ -244,7 +244,7 @@ fn main() {
     println!("Host: {}:{}", server_host, server_port);
     match role {
         Role::Initiator => {
-            println!("Pubkey: {}", HEXLOWER.encode(&pubkey.0));
+            println!("Pubkey: {}", HEXLOWER.encode(pubkey.as_bytes()));
             println!("Auth token: {}", HEXLOWER.encode(&client.read().unwrap().auth_token().unwrap().secret_key_bytes()));
             println!();
             println!("QR Code:");
