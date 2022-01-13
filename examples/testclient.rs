@@ -27,13 +27,13 @@ use saltyrtc_client::tasks::Task;
 use saltyrtc_task_relayed_data::{RelayedDataTask, RelayedDataError, MessageEvent};
 use tokio_core::reactor::Core;
 
-const ARG_PING_INTERVAL: &'static str = "ping_interval";
-const ARG_SRV_HOST: &'static str = "host";
-const ARG_SRV_PORT: &'static str = "port";
-const ARG_SRV_PUBKEY: &'static str = "pubkey";
-const ARG_PATH: &'static str = "path";
-const ARG_AUTHTOKEN: &'static str = "auth_token";
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const ARG_PING_INTERVAL: &str = "ping_interval";
+const ARG_SRV_HOST: &str = "host";
+const ARG_SRV_PORT: &str = "port";
+const ARG_SRV_PUBKEY: &str = "pubkey";
+const ARG_PATH: &str = "path";
+const ARG_AUTHTOKEN: &str = "auth_token";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Wrap future in a box with type erasure.
 macro_rules! boxed {
@@ -48,9 +48,9 @@ fn make_qrcode_payload(version: u16, permanent: bool, host: &str, port: u16, pub
 
     data.write_u16::<BigEndian>(version).unwrap();
     data.push(if permanent { 0x02 } else { 0x00 });
-    data.write_all(&pubkey).unwrap();
-    data.write_all(&auth_token).unwrap();
-    data.write_all(&server_pubkey).unwrap();
+    data.write_all(pubkey).unwrap();
+    data.write_all(auth_token).unwrap();
+    data.write_all(server_pubkey).unwrap();
     data.write_u16::<BigEndian>(port).unwrap();
     data.write_all(host.as_bytes()).unwrap();
 
@@ -59,7 +59,7 @@ fn make_qrcode_payload(version: u16, permanent: bool, host: &str, port: u16, pub
 
 /// Print the QR code payload to the terminal
 fn print_qrcode(payload: &[u8]) {
-    let base64 = BASE64.encode(&payload);
+    let base64 = BASE64.encode(payload);
     let qr = QrCode::encode_text(&base64, QrCodeEcc::Low).unwrap();
     let border = 1;
     for y in -border .. qr.size() + border {
@@ -232,7 +232,7 @@ fn main() {
     let payload = make_qrcode_payload(
         1,
         false,
-        &server_host,
+        server_host,
         server_port,
         pubkey.as_bytes(),
         client.read().unwrap().auth_token().unwrap().secret_key_bytes(),
@@ -245,7 +245,7 @@ fn main() {
     match role {
         Role::Initiator => {
             println!("Pubkey: {}", HEXLOWER.encode(pubkey.as_bytes()));
-            println!("Auth token: {}", HEXLOWER.encode(&client.read().unwrap().auth_token().unwrap().secret_key_bytes()));
+            println!("Auth token: {}", HEXLOWER.encode(client.read().unwrap().auth_token().unwrap().secret_key_bytes()));
             println!();
             println!("QR Code:");
             print_qrcode(&payload);
