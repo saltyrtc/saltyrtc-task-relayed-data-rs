@@ -15,10 +15,6 @@ To build for iOS, install `cargo-lipo`:
     $ # 32 bit targets
     $ rustup target add armv7-apple-ios i386-apple-ios
 
-Add an override if you need to support 32 bit targets:
-
-    $ rustup override add 1.41.1
-
 Then run
 
     $ cargo lipo --release

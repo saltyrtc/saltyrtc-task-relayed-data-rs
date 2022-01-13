@@ -4,11 +4,11 @@ version = "0.2.0"
 authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
 
 [dependencies]
-backtrace = "=0.3.55" # Rust 1.41 compat
+backtrace = "0.3.55"
 clippy = { version = "*", optional = true }
 failure = "0.1"
 log = "0.4"
-object = "=0.22" # Rust 1.41 compat
+object = "0.22"
 saltyrtc-client = "0.7"
 tokio-core = "0.1"
 
