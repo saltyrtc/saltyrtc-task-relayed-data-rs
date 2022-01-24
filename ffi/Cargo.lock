@@ -1072,8 +1072,9 @@ dependencies = [
 
 [[package]]
 name = "saltyrtc-client"
-version = "0.7.0"
-source = "git+https://github.com/saltyrtc/saltyrtc-client-rs#6aada9f5000c022582f9b837390505445e69070b"
+version = "0.8.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9032f8a6a81202b9110da80f061f2c7ed5634db7cdb5d697e5ca92cabcc459e5"
 dependencies = [
  "byteorder",
  "crypto_box",
