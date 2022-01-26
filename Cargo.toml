@@ -9,7 +9,7 @@ clippy = { version = "*", optional = true }
 failure = "0.1"
 log = "0.4"
 object = "0.22"
-saltyrtc-client = "0.7"
+saltyrtc-client = "0.8.0-rc.1"
 tokio-core = "0.1"
 
 [dev-dependencies]
@@ -22,7 +22,3 @@ qrcodegen = "1.2"
 
 [features]
 msgpack-debugging = ["saltyrtc-client/msgpack-debugging"]
-
-[patch.crates-io]
-rust_sodium-sys = { git = "https://github.com/dbrgn/rust_sodium" }
-rust_sodium = { git = "https://github.com/dbrgn/rust_sodium" }

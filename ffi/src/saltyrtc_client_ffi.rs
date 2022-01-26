@@ -13,6 +13,7 @@
 //! re-export all relevant types and generate their own header files.
 
 use std::boxed::Box;
+use std::convert::TryInto;
 use std::ffi::CString;
 use std::ptr;
 use std::slice;
@@ -338,14 +339,10 @@ pub unsafe extern "C" fn salty_keypair_restore(ptr: *const u8) -> *const salty_k
         error!("Tried to dereference a null pointer");
         return ptr::null();
     }
-    let private_key_slice: &[u8] = slice::from_raw_parts(ptr, 32);
-    let private_key = match PrivateKey::from_slice(private_key_slice) {
-        Some(key) => key,
-        None => {
-            error!("Could not restore private key from slice");
-            return ptr::null();
-        }
-    };
+    let private_key_bytes: [u8; 32] = slice::from_raw_parts(ptr, 32)
+        .try_into()
+        .expect("Could not convert private key slice to array");
+    let private_key = PrivateKey::from(private_key_bytes);
     let keypair = KeyPair::from_private_key(private_key);
     Box::into_raw(Box::new(keypair)) as *const salty_keypair_t
 }
@@ -364,7 +361,7 @@ pub unsafe extern "C" fn salty_keypair_public_key(ptr: *const salty_keypair_t) -
         return ptr::null();
     }
     let keypair = &*(ptr as *const KeyPair) as &KeyPair;
-    let pubkey_bytes: &[u8; 32] = &(keypair.public_key().0);
+    let pubkey_bytes: &[u8; 32] = keypair.public_key().as_bytes();
     pubkey_bytes.as_ptr()
 }
 
@@ -382,7 +379,7 @@ pub unsafe extern "C" fn salty_keypair_private_key(ptr: *const salty_keypair_t) 
         return ptr::null();
     }
     let keypair = &*(ptr as *const KeyPair) as &KeyPair;
-    let privkey_bytes: &[u8; 32] = &(keypair.private_key().0);
+    let privkey_bytes: &[u8; 32] = keypair.private_key().as_bytes();
     privkey_bytes.as_ptr()
 }
 
@@ -475,6 +472,6 @@ mod tests {
         let pubkey_slice: &[u8] = unsafe { slice::from_raw_parts(pubkey, 32) };
         println!("pubkey: {:?}", pubkey_slice);
 
-        assert_eq!(&keypair_rs.public_key().0, pubkey_slice);
+        assert_eq!(keypair_rs.public_key().as_bytes(), pubkey_slice);
     }
 }
