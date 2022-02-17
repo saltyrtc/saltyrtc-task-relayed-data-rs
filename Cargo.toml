@@ -8,7 +8,7 @@ backtrace = "0.3.55"
 clippy = { version = "*", optional = true }
 failure = "0.1"
 log = "0.4"
-saltyrtc-client = "0.8.0-rc.1"
+saltyrtc-client = "0.8.0-rc.2"
 tokio-core = "0.1"
 
 [dev-dependencies]
