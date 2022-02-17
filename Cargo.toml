@@ -8,14 +8,13 @@ backtrace = "0.3.55"
 clippy = { version = "*", optional = true }
 failure = "0.1"
 log = "0.4"
-object = "0.22"
-saltyrtc-client = "0.8.0-rc.1"
+saltyrtc-client = "0.8.0-rc.2"
 tokio-core = "0.1"
 
 [dev-dependencies]
 byteorder = "1.2"
 data-encoding = "2.1"
-env_logger = "0.7"
+env_logger = "0.9"
 tokio-timer = "0.1"
 clap = "2.30"
 qrcodegen = "1.2"
