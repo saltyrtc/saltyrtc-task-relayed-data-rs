@@ -3,6 +3,13 @@
 [![CircleCI][circle-ci-badge]][circle-ci]
 [![Join our chat on Gitter](https://badges.gitter.im/saltyrtc/Lobby.svg)](https://gitter.im/saltyrtc/Lobby)
 
+> :warning: **Note:** The SaltyRTC client libraries are in maintenance mode.
+> They will still receive bugfixes and regular maintenance, but if you want to
+> start using these libraries, be prepared that you will need to take over
+> maintenance at some point in time. (If you are interested in maintaining the
+> libraries, please let us know, our e-mails are in the README, section
+> "Security".)
+
 
 ## Testing
 
@@ -37,6 +44,25 @@ env var. This is the default URL:
 Release commits and tags are signed with the
 [Threema signing key](https://keybase.io/threema)
 (`E7ADD9914E260E8B35DFB50665FDE935573ACDA6`).
+
+
+## Security
+
+### Coordinated Disclosure / Reporting Security Issues
+
+Please report security issues directly to one or both of the following contacts:
+
+- Danilo Bargen
+    - Email: mail@dbrgn.ch
+    - Threema: EBEP4UCA
+    - GPG: [EA456E8BAF0109429583EED83578F667F2F3A5FA][keybase-dbrgn]
+- Lennart Grahl
+    - Email: lennart.grahl@gmail.com
+    - Threema: MSFVEW6C
+    - GPG: [3FDB14868A2B36D638F3C495F98FBED10482ABA6][keybase-lgrahl]
+
+[keybase-dbrgn]: https://keybase.io/dbrgn
+[keybase-lgrahl]: https://keybase.io/lgrahl
 
 
 ## License
