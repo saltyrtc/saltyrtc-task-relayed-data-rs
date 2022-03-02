@@ -48,7 +48,7 @@ jobs:
       # Build and test FFI crate
       - run:
           name: Build (Rust FFI)
-          command: cd ffi && cargo build
+          command: cd ffi && cargo build --locked
       - run:
           name: Test (Rust FFI)
           command: cd ffi && cargo test
