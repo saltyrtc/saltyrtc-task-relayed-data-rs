@@ -218,7 +218,6 @@ fn main() {
         server_host,
         server_port,
         Some(tls_connector),
-        &core.handle(),
         client.clone(),
     )
     .unwrap();
