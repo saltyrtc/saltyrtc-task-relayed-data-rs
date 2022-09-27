@@ -5,7 +5,6 @@ authors = ["Danilo Bargen <danilo.bargen@threema.ch>"]
 
 [dependencies]
 backtrace = "0.3.55"
-clippy = { version = "*", optional = true }
 failure = "0.1"
 log = "0.4"
 saltyrtc-client = "0.9"
