@@ -13,7 +13,7 @@ lazy_static = "1"
 libc = "0.2"
 log = "0.4"
 log4rs = { version = "1", features = ["console_appender"], default-features = false }
-rmp-serde = "0.13"
+rmp-serde = "1.1"
 saltyrtc-client = "0.9"
 saltyrtc-task-relayed-data = { path = ".." }
 tokio-core = "0.1"
